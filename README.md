@@ -396,9 +396,8 @@ Quality_Gates:
 ## 👨‍💻 Creator
 
 <div align="center">
-
-**ADPer** — *CS Geek, Cybersecurity and AI Enthusiast*
-🎓 Computer Science & Engineering (Cybersecurity), NFSU  
+**ADPer** — *CS Geek, Cybersecurity and AI Enthusiast*<br>
+🎓 Computer Science & Engineering (Cybersecurity), NFSU<br>
 🚀 Building intelligent tools for the command line, one workflow at a time
 
 [![GitHub](https://img.shields.io/badge/GitHub-Follow-black?style=for-the-badge&logo=github)](https://github.com/ADPer0705)
@@ -461,8 +460,7 @@ Email: security@sempropos.dev → Private disclosure
 
 **If Sempropos transformed your workflow, show some love!**
 
-[![GitHub stars](https://img.shields.io/github/stars/ADPer0705  /sempropos?style=social)](https://github.com/ADPer0705    /sempropos/stargazers)
-[![Twitter Follow](https://img.shields.io/twitter/follow/sempropos?style=social)](https://twitter.com/sempropos)
+[![GitHub stars](https://img.shields.io/github/stars/ADPer0705/sempropos?style=social)](https://github.com/ADPer0705/sempropos/stargazers)
 
 ```ascii
 ╔══════════════════════════════════════════════════════════════╗
