@@ -167,7 +167,7 @@ Network    Optional  🌐  # For LLM APIs
 
 ```bash
 # 1️⃣ Clone the repository
-git clone https://github.com/yourusername/sempropos.git && cd sempropos
+git clone https://github.com/ADPer0705  /sempropos.git && cd sempropos
 
 # 2️⃣ Environment activation
 python -m venv .venv && source .venv/bin/activate
@@ -257,29 +257,6 @@ Planned_Integrations:
 
 ---
 
-## 🛸 Development Roadmap
-
-<div align="center">
-
-```mermaid
-timeline
-    title Sempropos Evolution Path
-    Q1 2025 : Core MVP
-            : Natural Language Processing
-            : Basic Workflow Generation
-    Q2 2025 : Intelligence Layer
-            : Local LLM Integration
-            : Advanced Tool Mapping
-    Q3 2025 : Execution Engine
-            : Safe Command Execution
-            : Interactive Refinement
-    Q4 2025 : Ecosystem
-            : Plugin Architecture
-            : Community Marketplace
-```
-
-</div>
-
 ### Milestone Targets
 
 - **Dialog Refinement:** Interactive query improvement with context awareness
@@ -324,7 +301,7 @@ Core system improvements:
 
 ```bash
 # 1️⃣ Fork & Clone
-git clone https://github.com/yourusername/sempropos.git
+git clone https://github.com/ADPer0705  /sempropos.git
 cd sempropos
 
 # 2️⃣ Feature Branch
@@ -420,12 +397,12 @@ Quality_Gates:
 
 <div align="center">
 
-**ADPer** — *Cybersecurity Engineer & AI Researcher*  
+**ADPer** — *CS Geek, Cybersecurity and AI Enthusiast*
 🎓 Computer Science & Engineering (Cybersecurity), NFSU  
 🚀 Building intelligent tools for the command line, one workflow at a time
 
-[![GitHub](https://img.shields.io/badge/GitHub-Follow-black?style=for-the-badge&logo=github)](https://github.com/adper)
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-Connect-blue?style=for-the-badge&logo=linkedin)](https://linkedin.com/in/adper)
+[![GitHub](https://img.shields.io/badge/GitHub-Follow-black?style=for-the-badge&logo=github)](https://github.com/ADPer0705)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-Connect-blue?style=for-the-badge&logo=linkedin)](https://www.linkedin.com/in/dearanayji/)
 
 </div>
 
@@ -453,9 +430,9 @@ Special_Thanks:
 
 | Channel                                                                     | Purpose                        | Response Time      |
 |-----------------------------------------------------------------------------|--------------------------------|--------------------|
-| 🐛 **[Issues](https://github.com/yourusername/sempropos/issues)**           | Bug reports & feature requests | 24-48h             |
-| 💬 **[Discussions](https://github.com/yourusername/sempropos/discussions)** | Community Q&A                  | Community-driven   |
-| 📚 **[Wiki](https://github.com/yourusername/sempropos/wiki)**               | Documentation & guides         | Always available   |
+| 🐛 **[Issues](https://github.com/ADPer0705    /sempropos/issues)**           | Bug reports & feature requests | 24-48h             |
+| 💬 **[Discussions](https://github.com/ADPer0705   /sempropos/discussions)** | Community Q&A                  | Community-driven   |
+| 📚 **[Wiki](https://github.com/ADPer0705  /sempropos/wiki)**               | Documentation & guides         | Always available   |
 | 🔧 **[Discord](https://discord.gg/sempropos)**                              | Real-time chat                 | Real-time          |
 
 </div>
@@ -484,7 +461,7 @@ Email: security@sempropos.dev → Private disclosure
 
 **If Sempropos transformed your workflow, show some love!**
 
-[![GitHub stars](https://img.shields.io/github/stars/yourusername/sempropos?style=social)](https://github.com/yourusername/sempropos/stargazers)
+[![GitHub stars](https://img.shields.io/github/stars/ADPer0705  /sempropos?style=social)](https://github.com/ADPer0705    /sempropos/stargazers)
 [![Twitter Follow](https://img.shields.io/twitter/follow/sempropos?style=social)](https://twitter.com/sempropos)
 
 ```ascii
