@@ -1,18 +1,17 @@
-# AGENTS.md — sempropos
+# Welcome to the sempropos architecture guide!
 
-> **sempropos** is a smart, local, offline CLI tool that takes a natural language task description
+> **sempropos** is a smart linux CLI tool that takes a natural language task description
 > and returns the exact shell command or pipeline to accomplish it — by doing semantic retrieval
-> over installed man pages and synthesizing a command with a tiny local LLM.
+> over installed man pages and synthesizing a command with the help of a  LLM.
 
 ---
 
-## Project Goal
+## What the tool does
 
-Build a Python CLI tool `sempropos` that:
-1. At install time: indexes all man pages on the system into a structured SQLite database + embedding vectors
-2. At query time: retrieves the most relevant tools + flags for the user's query, then uses a local LLM to synthesize the exact command
-
-**Key constraint**: fully local and offline after install. No API calls. No cloud. No persistent background process.
+```
+Install time --> parse all man pages --> build SQLite index + embedding vectors
+Query time   --> retrieve relevant tools + flags --> synthesize command via LLM
+```
 
 ---
 
@@ -20,35 +19,20 @@ Build a Python CLI tool `sempropos` that:
 
 ```
 sempropos/
-├── AGENTS.md                  ← this file
+├── AGENTS.md                  <-- this file
 ├── README.md
-├── pyproject.toml             ← packaging metadata
-├── install.sh                 ← bootstraps llama-cli binary + model GGUF download
-├── sempropos/
-│   ├── __init__.py
-│   ├── cli.py                 ← entry point, argument parsing
-│   ├── index/
-│   │   ├── __init__.py
-│   │   ├── builder.py         ← install-time indexing pipeline
-│   │   ├── parser.py          ← man page parser (SYNOPSIS, OPTIONS, EXAMPLES)
-│   │   ├── schema.py          ← SQLite schema definition + migrations
-│   │   └── staleness.py       ← package DB mtime-based update detection
-│   ├── retrieval/
-│   │   ├── __init__.py
-│   │   ├── bm25.py            ← BM25 search over tool descriptions
-│   │   ├── semantic.py        ← embedding-based search (MiniLM)
-│   │   ├── fusion.py          ← Reciprocal Rank Fusion of BM25 + semantic results
-│   │   ├── flag_retrieval.py  ← flag-level semantic search per candidate tool
-│   │   └── expansion.py       ← synonym-based query expansion
-│   ├── synthesis/
-│   │   ├── __init__.py
-│   │   ├── prompt.py          ← prompt construction from retrieved context
-│   │   └── backend.py         ← llama.cpp / Ollama inference, Tier 0 fallback
-│   └── config.py              ← paths, constants, backend detection
+├── pyproject.toml             <-- packaging metadata
+├── install.sh                 <-- install script for Linux
+├── src/
+│   └── sempropos/
+│       ├── __init__.py
+│       ├── cli.py                 <-- entry point, argument parsing
+│       ├── index/                 <-- indexing pipeline and SQLite schema
+│       ├── intelligence/          <-- Intelligence layer: embeddings and command synthesis
+│       ├── retrieval/             <-- BM25, semantic search, RRF, flag retrieval
+│       ├── synthesis/             <-- prompt construction, backend detection, LLM call
+│       └── config.py              <-- paths, constants, backend detection
 └── tests/
-    ├── test_parser.py
-    ├── test_retrieval.py
-    └── test_synthesis.py
 ```
 
 ---
@@ -57,372 +41,195 @@ sempropos/
 
 ```
 ~/.local/share/sempropos/
-  index.db                     ← SQLite database (schema below)
-  tool_embeddings.npy          ← float32 array, shape [N_tools, 384]
-  flag_embeddings.npy          ← float32 array, shape [N_flags, 384]
-  flag_embedding_ids.npy       ← int32 array mapping flag_embeddings rows → flags.id
-  last_indexed                 ← plaintext ISO timestamp
-  models/
-    qwen2.5-1.5b-q4_k_m.gguf
-  bin/
-    llama-cli                  ← platform-specific binary
+  index.db                     <-- SQLite database (schema below)
+  tool_embeddings.npy          <-- float32 array, shape [N_tools, D]
+  flag_embeddings.npy          <-- float32 array, shape [N_flags, D]
+  flag_embedding_ids.npy       <-- int32 array mapping flag_embeddings rows → flags.id
+  index.meta                   <-- embedding model/provider + sempropos version
+  last_indexed                 <-- plaintext ISO timestamp
 ```
 
 ---
 
-## SQLite Schema
 
-File: `sempropos/index/schema.py`
 
-```sql
-CREATE TABLE IF NOT EXISTS tools (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    name        TEXT NOT NULL UNIQUE,
-    section     INTEGER NOT NULL DEFAULT 1,
-    description TEXT NOT NULL,     -- one-liner from man -k
-    synopsis    TEXT               -- raw SYNOPSIS block text
-);
+## SQLite schema
 
-CREATE TABLE IF NOT EXISTS flags (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    tool_id      INTEGER NOT NULL REFERENCES tools(id) ON DELETE CASCADE,
-    flag         TEXT NOT NULL,    -- e.g. "-l", "--list"
-    long_flag    TEXT,             -- long form if separate from short
-    takes_value  BOOLEAN DEFAULT 0,
-    value_hint   TEXT,             -- e.g. "file", "count", "format"
-    description  TEXT NOT NULL     -- flag's one-liner from OPTIONS section
-);
+Three tables: `tools`, `flags`, `examples`.
 
-CREATE TABLE IF NOT EXISTS examples (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    tool_id      INTEGER NOT NULL REFERENCES tools(id) ON DELETE CASCADE,
-    command      TEXT NOT NULL,    -- literal example command string
-    context      TEXT              -- surrounding prose if any
-);
+`tools` — one row per installed man page (sections 1 and 8 only).
+Fields: `id`, `name`, `section`, `description` (one-liner from `man -k`), `synopsis`.
 
-CREATE INDEX IF NOT EXISTS idx_flags_tool ON flags(tool_id);
-CREATE INDEX IF NOT EXISTS idx_examples_tool ON examples(tool_id);
-```
+`flags` — one row per parsed flag, foreign-keyed to `tools`.
+Fields: `id`, `tool_id`, `flag`, `long_flag`, `takes_value`, `value_hint`, `description`.
+
+`examples` — one row per parsed example, foreign-keyed to `tools`.
+Fields: `id`, `tool_id`, `command`, `context`.
+
+Source: `man -k . -s 1,8` for the tool list. `man -P cat <tool>` for page content.
 
 ---
 
-## Module Specifications
+## CLI commands
 
-### `sempropos/cli.py`
+| Command | Behaviour |
+|---------|-----------|
+| `sempropos "<query>"` | Main query flow |
+| `sempropos --install` | Download models + build full index |
+| `sempropos --update` | Rebuild index (skip downloads if assets present) |
+| `sempropos --check` | Print staleness status |
+| `sempropos --setup` | Interactive setup for synthesis/embedding providers |
+| `sempropos --set-synthesis-provider <name>` | Persist synthesis provider |
+| `sempropos --set-embedding-provider <name>` | Persist embedding provider |
+| `sempropos --set-embedding-model <name>` | Persist embedding model |
+| `sempropos --show-config` | Print current runtime intelligence config |
+| `sempropos --list-providers` | List all registered providers and their status |
 
-Entry point. Uses `argparse`.
-
-**Commands:**
-- `sempropos "<query>"` — main query flow
-- `sempropos --install` — run full index build + download model/binary
-- `sempropos --update` — re-run indexing (same as install-time index, skip binary/model download if present)
-- `sempropos --check` — print staleness status (last indexed, package DB mtime, whether update is needed)
-
-**Staleness check on every query**: before retrieval, call `staleness.is_stale()`. If stale, print a one-line warning:
-```
-[sempropos] Package database has changed. Run `sempropos --update` to refresh index.
-```
-Do not block the query.
-
-**Backend detection on every query**: call `backend.detect()` which returns one of `["llama_cpp", "ollama", "tier0"]`. Tier 0 prints structured output without synthesis.
+On every query: run a staleness check and print a one-line warning if stale. Do not
+block the query.
 
 ---
 
-### `sempropos/index/parser.py`
+## Indexing
 
-Man page parser. Input: raw text from `man -P cat <tool>`. Output: structured dict.
+Index source is `man -k . -s 1,8`. Parse each page for SYNOPSIS, OPTIONS/FLAGS, and
+EXAMPLES sections. On failure for any individual page: log a warning, continue — never
+abort the full index build for one bad page.
 
+The index build must be resumable — re-running after an interruption skips already-indexed
+tools.
+
+Staleness is detected by comparing the mtime of the distro package DB against the
+`last_indexed` timestamp. Supported paths:
+
+| Distro | Package DB path |
+|--------|----------------|
+| Debian/Ubuntu | `/var/lib/dpkg/status` |
+| Arch | `/var/lib/pacman/sync` |
+| Fedora/RHEL | `/var/lib/rpm/Packages` |
+| Alpine | `/lib/apk/db/installed` |
+
+---
+
+## Retrieval pipeline (query time)
+
+```
+1. Query expansion      — static synonym table, no model, ~0ms
+2. BM25 search          — over tools.description, rank_bm25.BM25Okapi
+3. Semantic search      — embed query, cosine sim over tool_embeddings.npy
+4. RRF fusion           — Reciprocal Rank Fusion of BM25 + semantic lists → top-5 tools
+5. Flag retrieval       — for each candidate tool, cosine sim over that tool's flag
+                          embeddings → top-6 most relevant flags
+6. Prompt construction  — SYNOPSIS + relevant flags + examples, target < 600 tokens
+7. LLM synthesis        — via intelligence module
+```
+
+Embeddings are pre-normalized at index time. Query-time cosine similarity is a numpy
+dot product — no vector DB, no sklearn.
+
+---
+
+## Intelligence module
+
+The `intelligence/` module is the single integration point for all LLM providers.
+Nothing outside this module makes direct LLM calls.
+
+### Design
+
+**`contracts.py`** — defines the provider interface. Every provider implements this.
+A provider receives a fully-constructed prompt string and returns a response string.
+Providers do not build prompts — that is `synthesis/prompt.py`'s responsibility.
+
+**`base.py`** — abstract base class for all providers.
+
+**`registry.py`** — maps provider names to their classes. Adding a new provider means
+registering it here and implementing `base.py`.
+
+**`policy.py`** — provider selection logic. Determines which provider to use at runtime
+based on: user config, environment detection, and availability checks. See selection
+order below.
+
+**`facade.py`** — the only public interface for the rest of the codebase. Callers do:
 ```python
-def parse_man_page(raw_text: str) -> dict:
-    """
-    Returns:
-    {
-        "synopsis": str,          # raw SYNOPSIS section text
-        "flags": [                # parsed from OPTIONS / FLAGS section
-            {
-                "flag": str,
-                "long_flag": str | None,
-                "takes_value": bool,
-                "value_hint": str | None,
-                "description": str
-            }
-        ],
-        "examples": [             # parsed from EXAMPLES section
-            {
-                "command": str,
-                "context": str | None
-            }
-        ]
-    }
-    """
+from sempropos.intelligence.facade import complete
+result = complete(prompt)
 ```
 
-**Section detection**: split on all-caps lines that match `r'^\s*[A-Z][A-Z\s]+\s*$'`. Track current section as a state variable. Accumulate lines per section.
+**`config.py`** — persists user's provider preference to disk.
 
-**Flag parsing** (in OPTIONS section): primary regex:
-```python
-FLAG_PATTERN = re.compile(
-    r'^\s{0,8}'
-    r'(-[\w-]+)'                    # short or long flag
-    r'(?:,\s*(-[\w-]+))?'           # optional second form
-    r'(?:\s+[<=\[]?(\w+)[>=\]]?)?'  # optional value hint
-    r'\s{2,}(.+)'                    # description (2+ spaces gap)
-)
+### Registered providers
+
+| Provider | File | Requires |
+|----------|------|---------|
+| `llama_cpp` | `llama_cpp.py` | local llama-cli binary + GGUF |
+| `ollama` | `ollama.py` | Ollama running on localhost:11434 |
+| `openai_compatible` | `openai_compatible.py` | API key + base URL (env vars) |
+| `anthropic` | `anthropic.py` | `ANTHROPIC_API_KEY` env var |
+| `gemini` | `gemini.py` | `GEMINI_API_KEY` env var |
+| `mistral` | `mistral.py` | `MISTRAL_API_KEY` env var |
+| `huggingface` | `huggingface.py` | `HF_TOKEN` env var |
+| `tier0` | `tier0.py` | nothing — structured fallback output, no LLM |
+
+### Provider selection order (`policy.py`)
+
+```
+1. User-persisted preference (from --set-synthesis-provider) if available + healthy
+2. llama_cpp                                          if binary + GGUF present
+3. ollama                                             if running + compatible model found
+4. openai_compatible                                  if OPENAI_API_KEY or OPENAI_BASE_URL set
+5. anthropic                                          if ANTHROPIC_API_KEY set
+6. gemini                                             if GEMINI_API_KEY set
+7. mistral                                            if MISTRAL_API_KEY set
+8. huggingface                                        if HF_TOKEN set
+9. tier0                                              always available, last resort
 ```
 
-If this regex fails on a line, fall back to storing the full OPTIONS block as a single flag entry with `flag="*"` and `description=<full block>`. This handles non-standard man pages gracefully.
+"Healthy" means the provider can be reached without error. Do a lightweight probe before
+committing (socket check for ollama, file existence for llama_cpp, env var presence for
+API providers). Do not make actual LLM calls during provider selection.
 
-**Example detection** (in EXAMPLES section): a line is an example command if it matches `r'^\s+([$#>]?\s*\w[\w.-]*)' ` and is not pure prose. Capture the command line; associate any preceding prose line as `context`.
+### Ollama model preference
 
-**Edge cases to handle:**
-- Man pages with no OPTIONS section: return empty flags list, do not crash
-- Man pages with no EXAMPLES section: return empty examples list
-- Groff escape sequences (`.B`, `.I`, `\fB`, `\fR` etc): strip before parsing with `re.sub(r'\\f[BIRP]', '', text)` and `re.sub(r'\.[A-Z]+\s', '', text)`
-- Pages that are just "see also" stubs redirecting to another page: detect with `re.search(r'see\s+\w+\s*\(\d\)', text, re.IGNORECASE)`, follow redirect with `man -P cat <redirected_tool>`
+When Ollama is selected, check available models and pick in this order:
+```
+gemma4:e2b  →  qwen3:1.7b  →  qwen3:0.6b  →  gemma3:1b
+```
+If none of these are present, do not auto-pull. Print a one-line advisory and fall
+through to the next provider in the selection order.
+
+### Tier 0 fallback output
+
+When no LLM is available, print the top matched tools with their synopsis and key flags.
+Make clear to the user that synthesis requires a provider and how to configure one.
 
 ---
 
-### `sempropos/index/builder.py`
+## Embeddings
 
-Install-time indexing pipeline. Should be resumable: if interrupted, re-running continues from where it left off (check `SELECT COUNT(*) FROM tools` before starting, skip already-indexed tools).
+Embeddings live in `intelligence/embeddings/fastembed_local.py`. This is separate from
+the synthesis providers because embeddings are used at both index time and query time,
+not just for synthesis.
 
-```python
-def build_index(progress: bool = True) -> None:
-    """
-    1. Run `man -k . -s 1` via subprocess, parse output into list of (name, section, description)
-    2. For each tool:
-       a. Run `man -P cat <name>` via subprocess
-       b. Call parser.parse_man_page()
-       c. INSERT into tools, flags, examples tables
-       d. Embed tools.description with MiniLM → accumulate into list
-       e. Embed each flag.description → accumulate into list
-    3. Write tool_embeddings.npy (N_tools × 384)
-    4. Write flag_embeddings.npy (N_flags × 384)
-    5. Write flag_embedding_ids.npy (N_flags,) mapping row → flags.id
-    6. Write last_indexed timestamp
-    """
-```
+Do not use PyTorch or `sentence-transformers`. Use `fastembed` (ONNX Runtime backend).
+The embedding model is managed entirely by fastembed — do not manually download or
+cache embedding model files.
 
-**Embedding**: use `sentence_transformers.SentenceTransformer("all-MiniLM-L6-v2")`. Batch embed in chunks of 256 for memory efficiency. The model auto-downloads on first `--install` run (~80MB, one-time).
-
-**Progress display**: use `tqdm` if `progress=True`. Show current tool name. On failure for a specific tool (man page unreadable, parser crash), log warning and continue — never abort the full index for one bad page.
-
-**Concurrency**: use `concurrent.futures.ThreadPoolExecutor(max_workers=4)` for the `man -P cat` subprocess calls. DB writes must be serialized (single writer thread). Embedding batching is already vectorized.
+The embedding model used at index time must be recorded in `index.meta`. At query time,
+the same model must be loaded. If there is a mismatch, abort and prompt the user to
+run `sempropos --update`.
 
 ---
 
-### `sempropos/index/staleness.py`
+## Synthesis prompt
 
-```python
-PACKAGE_DB_PATHS = {
-    "debian": "/var/lib/dpkg/status",
-    "arch":   "/var/lib/pacman/sync",
-    "fedora": "/var/lib/rpm/Packages",
-    "alpine": "/lib/apk/db/installed",
-}
+Target: under 600 tokens. Content: system instruction, task line, then for each
+candidate tool — synopsis, relevant flags, examples. Omit missing sections silently.
 
-def detect_package_db() -> str | None:
-    """Return path to package DB for current distro, or None if unknown."""
+System instruction: output only the exact shell command or pipeline. No explanation,
+no markdown, no preamble.
 
-def is_stale() -> bool:
-    """
-    Return True if any detected package DB mtime is newer than last_indexed timestamp.
-    If last_indexed does not exist, always return True.
-    """
-```
-
----
-
-### `sempropos/retrieval/expansion.py`
-
-Static synonym table. No model. Return expanded token list from the query.
-
-```python
-SYNONYMS: dict[str, list[str]] = {
-    "see":       ["list", "view", "show", "display", "print", "read"],
-    "files":     ["contents", "entries", "members", "paths"],
-    "archive":   ["compress", "extract", "zip", "tar", "gz", "7z", "bz2", "xz"],
-    "delete":    ["remove", "rm", "erase", "unlink", "clean"],
-    "find":      ["search", "locate", "grep", "scan", "filter"],
-    "network":   ["socket", "tcp", "udp", "interface", "packet", "port", "http"],
-    "kill":      ["terminate", "stop", "signal", "process", "pid"],
-    "disk":      ["partition", "mount", "filesystem", "df", "du", "block"],
-    "user":      ["account", "passwd", "group", "permission", "sudo"],
-    "monitor":   ["watch", "top", "stat", "trace", "profile", "log"],
-    "convert":   ["transform", "encode", "decode", "transcode", "format"],
-    "download":  ["fetch", "get", "pull", "curl", "wget", "request"],
-    "send":      ["transfer", "push", "upload", "scp", "rsync", "copy"],
-    "text":      ["string", "line", "grep", "sed", "awk", "parse"],
-    "image":     ["photo", "picture", "png", "jpg", "jpeg", "svg", "resize"],
-    "run":       ["execute", "launch", "start", "spawn", "exec"],
-    "schedule":  ["cron", "timer", "at", "systemd", "interval"],
-    "encrypt":   ["decrypt", "cipher", "gpg", "ssl", "tls", "hash", "sign"],
-}
-
-def expand(query: str) -> list[str]:
-    """Tokenize query, add synonyms for recognized terms, return deduplicated list."""
-```
-
-Add more domains as needed. This table is intentionally hand-curated — do not generate it programmatically.
-
----
-
-### `sempropos/retrieval/bm25.py`
-
-```python
-def search(query_tokens: list[str], top_k: int = 10) -> list[tuple[int, float]]:
-    """
-    Load or build BM25 index from tools.description corpus.
-    Returns list of (tool_id, score) sorted descending.
-    BM25 index is built from SQLite on first call and cached in-process.
-    Uses rank_bm25.BM25Okapi.
-    """
-```
-
-Tokenize descriptions by splitting on whitespace + punctuation, lowercase. Do not use NLTK or any NLP library — keep it stdlib + rank_bm25 only.
-
----
-
-### `sempropos/retrieval/semantic.py`
-
-```python
-def search(query: str, top_k: int = 10) -> list[tuple[int, float]]:
-    """
-    Embed query with MiniLM.
-    Load tool_embeddings.npy.
-    Compute cosine similarity (numpy dot product on L2-normalized vectors).
-    Return list of (tool_id, score) sorted descending.
-    """
-```
-
-Embeddings are pre-normalized at index time. Cosine similarity at query time is just a dot product — no sklearn needed.
-
----
-
-### `sempropos/retrieval/fusion.py`
-
-Reciprocal Rank Fusion of BM25 and semantic result lists.
-
-```python
-def reciprocal_rank_fusion(
-    results: list[list[tuple[int, float]]],
-    k: int = 60
-) -> list[tuple[int, float]]:
-    """
-    Standard RRF: score(d) = sum over lists of 1 / (k + rank(d))
-    Input: list of ranked result lists, each [(tool_id, score), ...]
-    Output: unified sorted list of (tool_id, fused_score)
-    """
-```
-
----
-
-### `sempropos/retrieval/flag_retrieval.py`
-
-```python
-def get_relevant_flags(
-    tool_id: int,
-    query: str,
-    top_k: int = 6
-) -> list[dict]:
-    """
-    1. Load flag embeddings for this tool_id (subset of flag_embeddings.npy)
-    2. Embed query with MiniLM
-    3. Cosine similarity → top_k flag rows
-    4. Fetch full flag records from SQLite
-    5. Return list of flag dicts: {flag, long_flag, takes_value, value_hint, description}
-    
-    If tool has fewer than top_k flags, return all of them.
-    If tool has no flags, return empty list.
-    """
-```
-
----
-
-### `sempropos/synthesis/prompt.py`
-
-```python
-def build_prompt(
-    query: str,
-    candidates: list[dict]   # [{tool, synopsis, flags, examples}, ...]
-) -> str:
-    """
-    Build the synthesis prompt. candidates is already filtered to top 1-3 tools
-    with their top-k flags and all examples.
-    
-    Prompt structure:
-      System instruction (one line)
-      Task line
-      For each candidate tool:
-        --- <tool>(1) ---
-        Synopsis: <synopsis>
-        Relevant flags:
-          <flag>  <takes_value hint if any>  — <description>
-          ...
-        Examples:
-          <command>
-          ...
-        ---------
-      
-      Command:
-    
-    Total prompt target: under 600 tokens.
-    If synopsis or examples are missing for a tool, omit that section silently.
-    If multiple tools are plausible, include all — let the model pick.
-    """
-```
-
-**System instruction**: `"You are a CLI command synthesizer. Output ONLY the exact shell command or pipeline. No explanation. No markdown. No preamble."`
-
----
-
-### `sempropos/synthesis/backend.py`
-
-```python
-def detect() -> str:
-    """
-    Returns "llama_cpp" | "ollama" | "tier0"
-    
-    Check order:
-    1. ~/.local/share/sempropos/bin/llama-cli exists and is executable → "llama_cpp"
-    2. `which llama-cli` in PATH → "llama_cpp"
-    3. socket connect to 127.0.0.1:11434 succeeds → "ollama"
-    4. else → "tier0"
-    """
-
-def run(prompt: str, backend: str) -> str:
-    """
-    "llama_cpp": subprocess call to llama-cli with args:
-        -m <model_path>
-        --prompt <prompt>
-        -n 80               # max output tokens
-        --temp 0.1          # near-deterministic
-        -c 1024             # context window (prompt is <600 tokens)
-        --no-display-prompt
-        --log-disable
-    
-    "ollama": POST to http://localhost:11434/api/generate
-        model: "qwen2.5:1.5b" (check available models first, prefer 1.5b, fall back to 0.5b)
-        prompt: <prompt>
-        stream: false
-    
-    "tier0": return empty string (caller handles structured output fallback)
-    """
-```
-
-**Tier 0 fallback output** (in `cli.py`, when `backend == "tier0"`):
-```
-No local LLM detected. Showing matched tools:
-
-[7z] — A file archiver with high compression ratio
-  Synopsis: 7z <command> [<switches>] <archive_name> [<files>]
-  Key flags: l (list contents), e (extract), a (add to archive)
-  Examples:
-    7z l archive.7z
-    7z l -ba archive.7z
-
-Install llama.cpp or start Ollama for command synthesis.
-```
+For Qwen3 providers: append `/no_think` to the prompt to disable chain-of-thought.
+For Gemma 4 E2B: thinking is off by default in instruction-tuned mode, no flag needed.
 
 ---
 
@@ -431,58 +238,67 @@ Install llama.cpp or start Ollama for command synthesis.
 ```toml
 [project]
 dependencies = [
-    "rank-bm25>=0.2.2",
-    "sentence-transformers>=3.0.0",
-    "numpy>=1.26",
-    "tqdm>=4.0",
-    "requests>=2.31",       # for Ollama API backend only
+    "rank-bm25",
+    "fastembed",
+    "numpy",
+    "tqdm",
+    "requests",
+    "huggingface_hub",
+  "psutil",
+  "tomli; python_version < '3.11'",
 ]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-cov", "ruff", "build", "twine"]
 ```
 
-Do not add LangChain, LlamaIndex, or any agent framework. Do not add chromadb, faiss, or any vector DB — numpy dot products over flat arrays are sufficient at this scale.
+Do not add: `torch`, `transformers`, `sentence-transformers`, `langchain`, `llama-index`,
+`chromadb`, `faiss`, or any agent/orchestration framework.
 
 ---
 
-## Install Script (`install.sh`)
+## Testing policy
 
-The install script must:
-1. Detect OS and CPU arch (`uname -s`, `uname -m`)
-2. Download the appropriate `llama-cli` prebuilt binary from `github.com/ggerganov/llama.cpp/releases` → `~/.local/share/sempropos/bin/llama-cli`
-3. Download `qwen2.5-1.5b-instruct-q4_k_m.gguf` from HuggingFace (Qwen2.5-1.5B-Instruct-GGUF repo) → `~/.local/share/sempropos/models/`
-4. `pip install --user sempropos` (or `pipx install sempropos`)
-5. Run `sempropos --install` (the indexing step)
-6. Print instructions to add `~/.local/bin` to PATH if not already present
-
-The script must be idempotent — running it twice does not re-download or re-index if artifacts already exist.
+- Tests must run without API keys by default.
+- Live network/API access is disallowed in standard test runs.
+- Provider tests should use mocks/stubs unless explicitly marked and opted-in.
+- Coverage gate target is >= 65%.
 
 ---
 
-## Testing Requirements
+## install.sh
 
-- `test_parser.py`: test SYNOPSIS/OPTIONS/EXAMPLES extraction against 5 real man page fixtures (store as `.txt` files in `tests/fixtures/`). Include: `tar`, `7z`, `curl`, `grep`, `ffmpeg`. These cover common formatting variations.
-- `test_retrieval.py`: test BM25, semantic search, and RRF with a minimal 20-tool mock index. Assert top result for known queries.
-- `test_synthesis.py`: test prompt construction. Assert that prompt for a known query+candidates is under 600 tokens (use `len(prompt.split())` as a proxy). Do not test LLM output — that is non-deterministic.
+Responsibilities in order:
+1. Detect OS and CPU arch — exit with advisory if unsupported
+2. Detect available RAM — select primary or floor model tier
+3. Check for existing Ollama + compatible model — skip GGUF download if found
+4. Download llama-cli binary (GitHub releases, pinned version)
+5. Download synthesis GGUF (HuggingFace, via `huggingface_hub`, pinned version)
+6. Run `sempropos --install` (triggers fastembed model download + index build)
+
+Must be idempotent — re-running skips steps whose outputs already exist and are valid.
 
 ---
 
-## Non-Goals (do not implement)
+## Non-goals
 
 - GUI or TUI
-- Cloud sync or telemetry
-- Continuous background process or daemon
-- Support for man page sections other than 1 (user commands) and 8 (sysadmin commands)
-- Windows or macOS support in v1 (Linux only)
+- Cloud sync or telemetry of any kind
+- Persistent background process or daemon
+- Man page sections other than 1 and 8
+- Windows or macOS support
 - LLM fine-tuning or training
+- Auto-pulling Ollama models without user consent
 
 ---
 
-## Definition of Done
+## Definition of done
 
-- [ ] `sempropos --install` completes without error on a fresh Debian/Ubuntu install
-- [ ] Index build completes in under 5 minutes on a Core i5 equivalent
-- [ ] `sempropos "list files in archive.7z"` returns `7z l archive.7z` (or equivalent correct command)
-- [ ] `sempropos "find all files larger than 100MB"` returns a correct `find` invocation
-- [ ] `sempropos "monitor network traffic on eth0"` returns a correct `tcpdump` or `iftop` invocation
-- [ ] Tier 0 fallback produces readable structured output when no LLM is detected
-- [ ] Staleness warning appears after a simulated package DB mtime update
-- [ ] All tests pass
+- [ ] `sempropos --install` completes without error on a fresh Debian/Ubuntu system
+- [ ] `sempropos "list files in archive.7z"` returns a correct `7z` invocation
+- [ ] `sempropos --set-synthesis-provider ollama` persists and is respected on next query
+- [ ] `sempropos --list-providers` shows all providers with availability status
+- [ ] Tier 0 produces readable output when no provider is available
+- [ ] Staleness warning fires after a simulated package DB mtime change
+- [ ] Full tests pass without API keys or live network
+- [ ] Coverage gate (>= 65%) passes

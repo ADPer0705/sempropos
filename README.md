@@ -1,66 +1,54 @@
-# sempropos
+# sempropos 🧰
 
-sempropos is a local, offline-first CLI tool that turns a natural-language task
-into a shell command or pipeline by retrieving relevant context from local man
-pages and synthesizing output with a local LLM.
+[![PyPI version](https://badge.fury.io/py/sempropos.svg)](https://badge.fury.io/py/sempropos)
+[![Python versions](https://img.shields.io/pypi/pyversions/sempropos.svg)](https://pypi.org/project/sempropos/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Build Status](https://github.com/ADPer0705/sempropos/actions/workflows/ci.yml/badge.svg)](https://github.com/ADPer0705/sempropos/actions)
 
-After install-time indexing and runtime asset bootstrap, query-time operation is fully local.
+`sempropos` is an open-source, local, offline-first CLI tool that turns a natural-language task description into a shell command or pipeline. It does this by retrieving relevant context from your system's local man pages and synthesizing the output using a tiny local LLM.
 
-## Features
+Say goodbye to complex web searches just to find the right flag—`sempropos` keeps it entirely on your machine.
 
-- Local SQLite index of man pages (sections 1 and 8)
-- Semantic retrieval over tool descriptions and flag descriptions
-- Hybrid ranking (BM25 + embedding similarity + Reciprocal Rank Fusion)
-- Runtime asset bootstrap via `sempropos --install`:
-	- Downloads `llama-cli` into `~/.local/share/sempropos/bin/`
-	- Downloads the Qwen 2.5 1.5B GGUF model into `~/.local/share/sempropos/models/`
-	- Builds and refreshes the local index and embedding artifacts
-- Local synthesis backend selection:
-	- `llama-cli` (preferred)
-	- Ollama (localhost)
-	- tier0 structured fallback when no LLM backend is available
-- Staleness warning when package DB changes after indexing
+## ✨ Features
 
-## Quick Start
+- **Privacy First, Offline First:** No API keys, no telemetry, no cloud backend. Everything runs locally natively.
+- **Local SQLite Index:** Fast retrieval of man pages (sections 1 and 8).
+- **Semantic Retrieval:** Hybrid ranking via BM25, embedding similarity, and Reciprocal Rank Fusion.
+- **Local LLM backend:** Synthesizes terminal commands using `llama.cpp` + a tiny Qwen 2.5 1.5B GGUF model, or Ollama.
+- **Smart staleness checks:** Detects when your package manager updates software and gently prompts an index refresh.
 
-### Option 1: One command installer (recommended)
+## 🚀 Quick Start
+
+### Option 1: One-Command Installer (Recommended)
+
+Simply pipe the installer script into bash (make sure you have `curl` and Python installed!):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ADPer0705/sempropos/main/install.sh | bash
 ```
 
-The installer script:
+The script will automatically set up `pipx`, install `sempropos`, download the runtime assets (`llama-cli` and the LLM model), and build the local index.
 
-1. Ensures `python3` exists
-2. Installs `pipx` (user scope) if missing
-3. Installs sempropos with `pipx`
-4. Runs `sempropos --install` to fetch runtime assets and build the index
-
-### Option 2: Run script from repository
-
-From repository root:
+### Option 2: Install from Source
 
 ```bash
-./install.sh
-```
+git clone https://github.com/ADPer0705/sempropos.git
+cd sempropos
 
-The script is idempotent and will:
-
-1. Install sempropos with `pipx`
-2. Run `sempropos --install` (asset bootstrap + indexing)
-
-### Option 3: Manual development setup
-
-```bash
+# 1. Setup a virtual environment & install dependencies
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
+
+# 2. Bootstrap runtime assets & download LLM model
 sempropos --install
 ```
 
-## Usage
+## 📖 Usage
 
-### Main query mode
+### The Main Query
+
+Describe what you want to do in natural language:
 
 ```bash
 sempropos "list files in archive.7z"
@@ -68,17 +56,17 @@ sempropos "find all files larger than 100MB"
 sempropos "monitor network traffic on eth0"
 ```
 
-### Management commands
+If it succeeds, you'll be handed the correct shell invocation instantly!
+
+### Management Commands
 
 ```bash
-sempropos --install
-sempropos --update
-sempropos --check
+sempropos --check    # Check if a new package installation requires updating the man page index
+sempropos --update   # Update the index with new installed programs
+sempropos --install  # (Re)download runtime assets and (re)build the index completely
 ```
 
-`--install` and `--update` both ensure runtime assets are present, then build/update the index.
-
-## Backend behavior
+## 🧠 Backend behavior
 
 Backend selection order per query:
 
@@ -86,12 +74,11 @@ Backend selection order per query:
 2. Ollama if `127.0.0.1:11434` is reachable
 3. tier0 fallback output (retrieved tools, key flags, and examples)
 
-When package DB changes since last index, sempropos prints a warning and still
-continues query processing.
+When your package database changes since the last index, sempropos prints a non-blocking warning so you know it's time to run `--update`.
 
-## Data Layout
+## 📁 Data Layout
 
-Default location:
+Default location for data assets:
 
 ```text
 ~/.local/share/sempropos/
@@ -112,41 +99,42 @@ Override data location with:
 export SEMPROPOS_DATA_DIR=/path/to/sempropos-data
 ```
 
-## Development
+## 🤝 Contributing
 
-### Run tests
+We welcome contributions from everyone! Whether you're fixing bugs, adding new features, or improving documentation, your help makes `sempropos` better for the entire community.
+
+Please read our [CONTRIBUTING.md](CONTRIBUTING.md) for conventions on pull requests, code style, and reporting issues.
+
+For a deep dive into how `sempropos` indexes man pages, retrieves vectors and generates commands, read the [Architecture Guide (AGENTS.md)](AGENTS.md).
+
+## 🧪 Testing & Quality
+
+Run the full test suite with the project coverage gate:
 
 ```bash
-python -m pip install pytest
-python -m pytest -q
+python -m pytest tests/ --cov=src/sempropos --cov-report=term-missing --cov-report=html --cov-fail-under=65
 ```
 
-### CI/CD
+Quality policy for this repository:
 
-GitHub Actions workflows are included:
+- CI coverage gate is **65% minimum**.
+- Provider tests are **mocked/offline by default** for deterministic CI runs.
+- Optional live provider smoke checks should be local-only and guarded by explicit env vars/markers.
+- Running tests should **not require any API key**.
 
-1. CI workflow runs tests on push and pull requests across Python 3.11-3.13 and validates package build artifacts.
-2. Publish workflow builds distributions and publishes to PyPI on release, with manual dispatch support for TestPyPI.
+You can also use the Makefile shortcuts:
 
-For publishing, configure trusted publishing in PyPI/TestPyPI for this repository.
-
-### Project layout
-
-```text
-sempropos/
-	cli.py
-	config.py
-	index/
-	retrieval/
-	synthesis/
-tests/
-	fixtures/
+```bash
+make test      # full suite + coverage gate
+make coverage  # full suite + coverage report only
 ```
 
-## Notes
+## 📄 License
 
-- v1 scope is Linux only.
-- v1 does not include cloud APIs, telemetry, or background daemons.
-- Prompt synthesis quality depends on local index completeness and backend model
-	availability.
+This project is licensed under the [MIT License](LICENSE).
+
+## 💬 Community & Support
+
+- If you found a bug or have a feature request, please [open an issue](https://github.com/ADPer0705/sempropos/issues).
+- Want to chat or ask a question? Join the discussion on GitHub Discussions.
 
