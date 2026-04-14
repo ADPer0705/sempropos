@@ -1,63 +1,39 @@
-name: Publish
+name: Publish to PyPI
 
 on:
   release:
     types: [published]
-  workflow_dispatch:
-    inputs:
-      repository:
-        description: "Target repository (pypi or testpypi)"
-        required: true
-        default: "testpypi"
-        type: choice
-        options:
-          - testpypi
-          - pypi
 
 jobs:
-  build:
-    name: Build artifacts
+  pypi-publish:
+    name: Build and upload to PyPI
     runs-on: ubuntu-latest
+    
+    # PyPI requires OpenID Connect (OIDC) through environments.
+    # Create the 'pypi' environment in Settings -> Environments 
+    # for the Trusted Publisher OIDC flow to work.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/sempropos
+
+    permissions:
+      id-token: write 
+      contents: read
 
     steps:
-      - name: Checkout
+      - name: 📥 Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: 🐍 Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
 
-      - name: Build distributions
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install build
-          python -m build
+      - name: 🛠️ Install build tools
+        run: python -m pip install --upgrade build
 
-      - name: Upload dist artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist/*
+      - name: 📦 Build a binary wheel and a source tarball
+        run: python -m build
 
-  publish:
-    name: Publish package
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-
-    environment:
-      name: ${{ github.event_name == 'release' && 'pypi' || inputs.repository }}
-
-    steps:
-      - name: Download dist artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist
-
-      - name: Publish to PyPI/TestPyPI
+      - name: 🚀 Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          repository-url: ${{ (github.event_name == 'workflow_dispatch' && inputs.repository == 'testpypi') && 'https://test.pypi.org/legacy/' || '' }}
