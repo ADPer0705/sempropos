@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sempropos.synthesis.prompt import build_prompt
+from sempropos.synthesis.prompt import MAX_PROMPT_WORDS, _truncate_words, build_prompt
 
 
 def test_prompt_stays_under_token_budget() -> None:
@@ -48,3 +48,51 @@ def test_prompt_stays_under_token_budget() -> None:
     prompt = build_prompt("list files in archive.7z", candidates)
     assert "Command:" in prompt
     assert len(prompt.split()) <= 600
+
+
+def test_prompt_handles_empty_candidates() -> None:
+    prompt = build_prompt("echo hello", [])
+    assert "Task: echo hello" in prompt
+    assert prompt.endswith("Command:")
+
+
+def test_prompt_reduces_examples_before_hard_truncate() -> None:
+    many_examples = [
+        {
+            "command": f"tool --example-{idx} alpha beta gamma delta epsilon",
+            "context": None,
+        }
+        for idx in range(30)
+    ]
+    candidates = [
+        {
+            "tool": "tool",
+            "synopsis": "tool [options]",
+            "flags": [
+                {
+                    "flag": "--long-option",
+                    "long_flag": None,
+                    "takes_value": True,
+                    "value_hint": "value",
+                    "description": "extremely verbose description field for prompt shaping",
+                }
+                for _ in range(10)
+            ],
+            "examples": many_examples,
+        }
+    ]
+
+    prompt = build_prompt("run very detailed task", candidates)
+    assert "Command:" in prompt
+    assert len(prompt.split()) <= MAX_PROMPT_WORDS
+    # Ensure prompt still has section structure after reduction.
+    assert "Relevant flags:" in prompt
+    assert "Examples:" in prompt
+
+
+def test_hard_truncation_keeps_command_marker() -> None:
+    long_text = " ".join(["token"] * 700) + " Command:"
+    truncated = _truncate_words(long_text, 600)
+
+    assert len(truncated.split()) <= 600
+    assert "Command:" in truncated.split()
