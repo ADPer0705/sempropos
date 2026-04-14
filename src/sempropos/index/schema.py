@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
 
 from sempropos import config
-
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS tools (
@@ -39,7 +39,8 @@ CREATE INDEX IF NOT EXISTS idx_examples_tool ON examples(tool_id);
 """
 
 
-def get_connection(path: Path | None = None) -> sqlite3.Connection:
+@contextmanager
+def get_connection(path: Path | None = None):
     """Open a SQLite connection configured for sempropos schema usage."""
     config.ensure_data_dirs()
     db_file = path or config.db_path()
@@ -48,7 +49,10 @@ def get_connection(path: Path | None = None) -> sqlite3.Connection:
     conn = sqlite3.connect(db_file)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
-    return conn
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def initialize(path: Path | None = None) -> None:

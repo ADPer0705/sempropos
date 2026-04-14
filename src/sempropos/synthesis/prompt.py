@@ -2,11 +2,35 @@
 
 from __future__ import annotations
 
-
 SYSTEM_INSTRUCTION = (
     "You are a CLI command synthesizer. Output ONLY the exact shell command "
     "or pipeline. No explanation. No markdown. No preamble."
 )
+
+MAX_PROMPT_WORDS = 600
+
+
+def _word_count(text: str) -> int:
+    """Return a conservative word-budget count for prompt sizing."""
+    return len(text.split())
+
+
+def _truncate_words(text: str, limit: int) -> str:
+    """Trim text to a fixed word budget while preserving stable formatting."""
+    if limit <= 0:
+        return ""
+    words = text.split()
+    if len(words) <= limit:
+        return text
+
+    truncated_words = words[:limit]
+    if "Command:" in truncated_words:
+        return " ".join(truncated_words)
+
+    if limit == 1:
+        return "Command:"
+
+    return " ".join(words[: limit - 1] + ["Command:"])
 
 
 def _format_flag(flag: dict) -> str:
@@ -66,10 +90,16 @@ def build_prompt(query: str, candidates: list[dict]) -> str:
     """Build synthesis prompt and keep it under the target token budget."""
     max_flags = 6
     max_examples = 4
+    normalized_query = (query or "").strip()
 
     while True:
-        prompt = _build_with_limits(query, candidates, max_flags=max_flags, max_examples=max_examples)
-        if len(prompt.split()) <= 600:
+        prompt = _build_with_limits(
+            normalized_query,
+            candidates,
+            max_flags=max_flags,
+            max_examples=max_examples,
+        )
+        if _word_count(prompt) <= MAX_PROMPT_WORDS:
             return prompt
 
         if max_examples > 0:
@@ -79,5 +109,4 @@ def build_prompt(query: str, candidates: list[dict]) -> str:
             max_flags -= 1
             continue
 
-        words = prompt.split()
-        return " ".join(words[:600])
+        return _truncate_words(prompt, MAX_PROMPT_WORDS)

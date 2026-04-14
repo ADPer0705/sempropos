@@ -7,7 +7,6 @@ from pathlib import Path
 
 from sempropos import config
 
-
 PACKAGE_DB_PATHS = {
     "debian": "/var/lib/dpkg/status",
     "arch": "/var/lib/pacman/sync",
@@ -40,6 +39,13 @@ def read_last_indexed() -> datetime | None:
         return None
 
 
+def _to_utc_timestamp(value: datetime) -> float:
+    """Convert datetime to epoch seconds in UTC consistently."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc).timestamp()
+    return value.astimezone(timezone.utc).timestamp()
+
+
 def is_stale() -> bool:
     """Return True when package metadata is newer than the last index run."""
     last_indexed = read_last_indexed()
@@ -50,10 +56,7 @@ def is_stale() -> bool:
     if db_path is None:
         return False
 
-    if last_indexed.tzinfo is None:
-        last_indexed_ts = last_indexed.replace(tzinfo=timezone.utc).timestamp()
-    else:
-        last_indexed_ts = last_indexed.timestamp()
+    last_indexed_ts = _to_utc_timestamp(last_indexed)
 
     pkg_mtime_ts = Path(db_path).stat().st_mtime
     return pkg_mtime_ts > last_indexed_ts
