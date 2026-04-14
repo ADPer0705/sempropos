@@ -3,32 +3,25 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 import subprocess
+import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
+from pathlib import Path
+from shutil import disk_usage
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
 
-from sempropos import config
-from sempropos.index import schema
-from sempropos.index import parser
-
+from sempropos import __version__, config
+from sempropos.index import embedder, parser, schema
+from sempropos.intelligence.config import load_settings
+from sempropos.intelligence.contracts import EmbeddingProviderName
 
 LOGGER = logging.getLogger(__name__)
 MAN_K_PATTERN = re.compile(r"^([^\s,]+)(?:,\s*[^\s,]+)*\s+\(([^)]+)\)\s+-\s+(.*)$")
-
-_MODEL: SentenceTransformer | None = None
-
-
-def _get_embedder() -> SentenceTransformer:
-    """Return a cached sentence-transformer model instance."""
-    global _MODEL
-    if _MODEL is None:
-        _MODEL = SentenceTransformer(config.EMBEDDING_MODEL_NAME)
-    return _MODEL
 
 
 def _run_man_k(section: str) -> list[tuple[str, int, str]]:
@@ -138,22 +131,20 @@ def _insert_tool(conn, name: str, section: int, description: str, parsed: dict) 
         )
 
 
-def _normalize(vectors: np.ndarray) -> np.ndarray:
-    """L2-normalize embedding vectors while preserving float32 dtype."""
-    if vectors.size == 0:
-        return vectors.astype(np.float32)
-
-    norms = np.linalg.norm(vectors, axis=1, keepdims=True)
-    norms[norms == 0] = 1.0
-    return (vectors / norms).astype(np.float32)
-
-
-def _embed_texts(texts: list[str], progress: bool) -> np.ndarray:
+def _embed_texts(
+    texts: list[str],
+    model_name: str,
+    progress: bool,
+    provider_name: EmbeddingProviderName | None,
+) -> np.ndarray:
     """Embed text rows in batches and return normalized vectors."""
+    try:
+        expected_dim = config.get_embedding_dim(model_name)
+    except KeyError as exc:
+        raise RuntimeError(config.MISMATCH_UPDATE_NOTICE) from exc
     if not texts:
-        return np.empty((0, config.EMBEDDING_DIM), dtype=np.float32)
+        return np.empty((0, expected_dim), dtype=np.float32)
 
-    model = _get_embedder()
     all_batches: list[np.ndarray] = []
 
     iterator = range(0, len(texts), 256)
@@ -163,20 +154,51 @@ def _embed_texts(texts: list[str], progress: bool) -> np.ndarray:
     for start in iterator:
         end = start + 256
         batch = texts[start:end]
-        encoded = model.encode(
+        encoded = embedder.embed_texts(
             batch,
-            batch_size=256,
-            convert_to_numpy=True,
-            normalize_embeddings=True,
-            show_progress_bar=False,
+            model_name=model_name,
+            provider_name=provider_name,
         )
-        all_batches.append(encoded.astype(np.float32))
+        all_batches.append(encoded)
 
-    vectors = np.vstack(all_batches) if all_batches else np.empty((0, config.EMBEDDING_DIM))
-    return _normalize(vectors)
+    vectors = (
+        np.vstack(all_batches)
+        if all_batches
+        else np.empty((0, expected_dim), dtype=np.float32)
+    )
+    return vectors.astype(np.float32)
 
 
-def _rebuild_embeddings(conn, progress: bool) -> None:
+def _atomic_save_npy(path: Path, values: np.ndarray) -> None:
+    """Persist an ndarray atomically to avoid partial artifact writes."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path: Path | None = None
+
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=path.parent,
+            prefix=f"{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temp_path = Path(handle.name)
+            np.save(handle, values)
+            handle.flush()
+            os.fsync(handle.fileno())
+
+        os.replace(temp_path, path)
+    finally:
+        if temp_path is not None and temp_path.exists():
+            temp_path.unlink(missing_ok=True)
+
+
+def _rebuild_embeddings(
+    conn,
+    model_name: str,
+    progress: bool,
+    provider_name: EmbeddingProviderName | None,
+) -> int:
     """Recompute and persist tool and flag embedding arrays from SQLite."""
     tool_rows = conn.execute("SELECT id, description FROM tools ORDER BY id").fetchall()
     flag_rows = conn.execute("SELECT id, description FROM flags ORDER BY id").fetchall()
@@ -184,28 +206,97 @@ def _rebuild_embeddings(conn, progress: bool) -> None:
     tool_texts = [row["description"] for row in tool_rows]
     flag_texts = [row["description"] for row in flag_rows]
 
-    tool_vectors = _embed_texts(tool_texts, progress=progress)
-    flag_vectors = _embed_texts(flag_texts, progress=progress)
+    tool_vectors = _embed_texts(
+        tool_texts,
+        model_name=model_name,
+        progress=progress,
+        provider_name=provider_name,
+    )
+    flag_vectors = _embed_texts(
+        flag_texts,
+        model_name=model_name,
+        progress=progress,
+        provider_name=provider_name,
+    )
     flag_ids = np.array([row["id"] for row in flag_rows], dtype=np.int32)
 
-    np.save(config.tool_embeddings_path(), tool_vectors)
-    np.save(config.flag_embeddings_path(), flag_vectors)
-    np.save(config.flag_embedding_ids_path(), flag_ids)
+    embedding_dim = 0
+    if tool_vectors.ndim == 2 and tool_vectors.shape[1] > 0:
+        embedding_dim = int(tool_vectors.shape[1])
+    elif flag_vectors.ndim == 2 and flag_vectors.shape[1] > 0:
+        embedding_dim = int(flag_vectors.shape[1])
+
+    _atomic_save_npy(config.tool_embeddings_path(), tool_vectors)
+    _atomic_save_npy(config.flag_embeddings_path(), flag_vectors)
+    _atomic_save_npy(config.flag_embedding_ids_path(), flag_ids)
+    return embedding_dim
 
 
-def build_index(progress: bool = True) -> None:
+def _select_embedding_model(force_floor_embedding: bool) -> str:
+    """Select embedding model according to install policy."""
+    if force_floor_embedding:
+        print(config.EMBEDDING_FLOOR_NOTICE)
+        return config.EMBEDDING_FLOOR_MODEL
+
+    available = disk_usage(config.data_dir()).free
+    if available < config.EMBEDDING_LOW_DISK_THRESHOLD_BYTES:
+        print(config.EMBEDDING_FLOOR_NOTICE)
+        return config.EMBEDDING_FLOOR_MODEL
+
+    return config.EMBEDDING_PRIMARY_MODEL
+
+
+def build_index(
+    progress: bool = True,
+    *,
+    force_floor_embedding: bool = False,
+    synthesis_model: str | None = None,
+    embedding_provider: EmbeddingProviderName | None = None,
+    embedding_model: str | None = None,
+) -> str:
     """Build or refresh the local SQLite and embedding index artifacts."""
     config.ensure_data_dirs()
     schema.initialize()
+    settings = load_settings()
+    selected_embedding_provider = embedding_provider or settings.embedding_provider
+    preferred_embedding_model_name = (
+        embedding_model
+        or settings.embedding_model
+        or _select_embedding_model(force_floor_embedding=force_floor_embedding)
+    )
 
     tools = _discover_tools()
     if not tools:
         raise RuntimeError("No man pages discovered from man -k")
 
     with schema.get_connection() as conn:
+        embedding_model_name = preferred_embedding_model_name
+        meta = config.read_index_meta() or {}
+
         existing = {
             row["name"] for row in conn.execute("SELECT name FROM tools").fetchall()
         }
+
+        existing_version = str(meta.get("sempropos_version") or "")
+        if existing and existing_version and existing_version != __version__:
+            raise RuntimeError(
+                config.VERSION_UPDATE_NOTICE_TEMPLATE.format(version=__version__)
+            )
+
+        # Keep resumable rebuilds deterministic when no explicit model is configured.
+        existing_model_name = str(meta.get("embedding_model") or "")
+        if (
+            existing
+            and not embedding_model
+            and not settings.embedding_model
+            and existing_model_name
+        ):
+            try:
+                config.get_embedding_dim(existing_model_name)
+            except KeyError as exc:
+                raise RuntimeError(config.MISMATCH_UPDATE_NOTICE) from exc
+            embedding_model_name = existing_model_name
+
         pending = [row for row in tools if row[0] not in existing]
 
         iterator = pending
@@ -239,9 +330,22 @@ def build_index(progress: bool = True) -> None:
         if pbar is not None:
             pbar.close()
 
-        _rebuild_embeddings(conn, progress=progress)
+        embedding_dim = _rebuild_embeddings(
+            conn,
+            model_name=embedding_model_name,
+            progress=progress,
+            provider_name=selected_embedding_provider,
+        )
 
     config.last_indexed_path().write_text(
         datetime.now(tz=timezone.utc).isoformat(),
         encoding="utf-8",
     )
+    config.write_index_meta(
+        embedding_model=embedding_model_name,
+        embedding_dim=embedding_dim,
+        embedding_provider=selected_embedding_provider,
+        synthesis_model=synthesis_model
+        or config.synthesis_model_spec("primary")["filename"],
+    )
+    return embedding_model_name
