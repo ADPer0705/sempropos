@@ -14,7 +14,7 @@ from sempropos.intelligence.contracts import (
     SynthesisRequest,
     SynthesisResult,
 )
-from sempropos.intelligence.providers.base import ProviderInfo, SynthesisProvider
+from sempropos.intelligence.inference.base import ProviderInfo, SynthesisProvider
 
 
 def _extract_command(text: str) -> str:

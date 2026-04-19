@@ -15,7 +15,7 @@ from sempropos.intelligence.contracts import (
     ProviderExecutionError,
     ProviderUnavailableError,
 )
-from sempropos.intelligence.providers.base import EmbeddingProvider
+from sempropos.intelligence.inference.base import EmbeddingProvider
 
 
 def _normalize(matrix: np.ndarray) -> np.ndarray:

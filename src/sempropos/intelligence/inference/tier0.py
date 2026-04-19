@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from sempropos.intelligence.contracts import SynthesisRequest, SynthesisResult
-from sempropos.intelligence.providers.base import ProviderInfo, SynthesisProvider
+from sempropos.intelligence.inference.base import ProviderInfo, SynthesisProvider
 
 
 class Tier0Provider(SynthesisProvider):

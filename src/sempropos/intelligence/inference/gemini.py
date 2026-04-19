@@ -1,4 +1,4 @@
-"""Anthropic synthesis provider."""
+"""Gemini synthesis provider."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from sempropos.intelligence.contracts import (
     SynthesisRequest,
     SynthesisResult,
 )
-from sempropos.intelligence.providers.base import ProviderInfo, SynthesisProvider
+from sempropos.intelligence.inference.base import ProviderInfo, SynthesisProvider
 
 
 def _extract_command(text: str) -> str:
@@ -36,49 +36,50 @@ def _build_final_prompt(base_prompt: str, model_hint: str) -> str:
     return base_prompt
 
 
-class AnthropicProvider(SynthesisProvider):
-    """Remote provider using Anthropic messages API."""
+class GeminiProvider(SynthesisProvider):
+    """Remote provider using Google's Gemini generateContent endpoint."""
 
     def __init__(self, runtime: ProviderRuntimeConfig | None) -> None:
         self._runtime = runtime or ProviderRuntimeConfig(
-            base_url="https://api.anthropic.com/v1",
-            api_key_env="ANTHROPIC_API_KEY",
-            model="claude-3-5-sonnet-latest",
+            base_url="https://generativelanguage.googleapis.com/v1beta",
+            api_key_env="GEMINI_API_KEY",
         )
 
     @property
     def info(self) -> ProviderInfo:
-        return ProviderInfo(name="anthropic", local=False)
+        return ProviderInfo(name="gemini", local=False)
 
     def _api_key(self) -> str | None:
-        return resolve_provider_api_key(self._runtime, "ANTHROPIC_API_KEY")
+        return resolve_provider_api_key(self._runtime, "GEMINI_API_KEY")
 
     def available(self) -> bool:
-        return bool(self._runtime.base_url and self._runtime.model and self._api_key())
+        return bool(self._runtime.model and self._api_key())
 
     def synthesize(self, request: SynthesisRequest) -> SynthesisResult:
         if not self.available():
-            raise ProviderUnavailableError(
-                "Anthropic provider requires base_url, model, and API key"
-            )
+            raise ProviderUnavailableError("Gemini provider requires model and API key")
 
-        final_prompt = _build_final_prompt(request.prompt, str(self._runtime.model))
+        base = (
+            self._runtime.base_url or "https://generativelanguage.googleapis.com/v1beta"
+        )
+        model = self._runtime.model
+        api_key = self._api_key()
+        final_prompt = _build_final_prompt(request.prompt, model)
+
+        url = f"{base.rstrip('/')}/models/{model}:generateContent?key={api_key}"
         payload = {
-            "model": self._runtime.model,
-            "max_tokens": request.max_tokens,
-            "temperature": request.temperature,
-            "messages": [{"role": "user", "content": final_prompt}],
-        }
-        headers = {
-            "x-api-key": str(self._api_key()),
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
+            "contents": [
+                {"parts": [{"text": final_prompt}]},
+            ],
+            "generationConfig": {
+                "temperature": request.temperature,
+                "maxOutputTokens": request.max_tokens,
+            },
         }
 
         try:
             response = requests.post(
-                f"{self._runtime.base_url.rstrip('/')}/messages",
-                headers=headers,
+                url,
                 json=payload,
                 timeout=self._runtime.timeout_seconds or request.timeout_seconds,
             )
@@ -87,16 +88,13 @@ class AnthropicProvider(SynthesisProvider):
         except requests.RequestException as exc:
             raise ProviderExecutionError(str(exc)) from exc
 
-        content = data.get("content") or []
-        chunks: list[str] = []
-        for item in content:
-            text = item.get("text") if isinstance(item, dict) else None
-            if isinstance(text, str):
-                chunks.append(text)
-        raw = "\n".join(chunks).strip()
+        candidates = data.get("candidates") or []
+        parts = candidates[0].get("content", {}).get("parts", []) if candidates else []
+        raw = "\n".join(str(part.get("text", "")) for part in parts).strip()
+
         return SynthesisResult(
-            provider="anthropic",
+            provider="gemini",
             command=_extract_command(raw),
             raw_output=raw,
-            metadata={"model": self._runtime.model},
+            metadata={"model": model},
         )

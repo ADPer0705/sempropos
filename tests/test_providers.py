@@ -13,7 +13,7 @@ from sempropos.intelligence.contracts import (
     SynthesisRequest,
 )
 from sempropos.intelligence.embeddings import remote as remote_embeddings
-from sempropos.intelligence.providers import (
+from sempropos.intelligence.inference import (
     anthropic,
     gemini,
     huggingface,

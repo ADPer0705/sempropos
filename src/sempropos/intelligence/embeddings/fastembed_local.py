@@ -13,7 +13,7 @@ from sempropos.intelligence.contracts import (
     EmbeddingRequest,
     ProviderExecutionError,
 )
-from sempropos.intelligence.providers.base import EmbeddingProvider
+from sempropos.intelligence.inference.base import EmbeddingProvider
 
 _MODEL_CACHE: dict[str, Any] = {}
 

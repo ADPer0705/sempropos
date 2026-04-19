@@ -14,7 +14,7 @@ from sempropos.intelligence.config import (
     update_provider_config,
     update_settings,
 )
-from sempropos.intelligence.providers import anthropic, gemini
+from sempropos.intelligence.inference import anthropic, gemini
 from sempropos.synthesis import backend
 
 

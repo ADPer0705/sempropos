@@ -13,15 +13,15 @@ from sempropos.intelligence.embeddings.remote import (
     HuggingFaceEmbeddingProvider,
     OpenAICompatibleEmbeddingProvider,
 )
-from sempropos.intelligence.providers.anthropic import AnthropicProvider
-from sempropos.intelligence.providers.base import EmbeddingProvider, SynthesisProvider
-from sempropos.intelligence.providers.gemini import GeminiProvider
-from sempropos.intelligence.providers.huggingface import HuggingFaceProvider
-from sempropos.intelligence.providers.llama_cpp import LlamaCppProvider
-from sempropos.intelligence.providers.mistral import MistralProvider
-from sempropos.intelligence.providers.ollama import OllamaProvider
-from sempropos.intelligence.providers.openai_compatible import OpenAICompatibleProvider
-from sempropos.intelligence.providers.tier0 import Tier0Provider
+from sempropos.intelligence.inference.anthropic import AnthropicProvider
+from sempropos.intelligence.inference.base import EmbeddingProvider, SynthesisProvider
+from sempropos.intelligence.inference.gemini import GeminiProvider
+from sempropos.intelligence.inference.huggingface import HuggingFaceProvider
+from sempropos.intelligence.inference.llama_cpp import LlamaCppProvider
+from sempropos.intelligence.inference.mistral import MistralProvider
+from sempropos.intelligence.inference.ollama import OllamaProvider
+from sempropos.intelligence.inference.openai_compatible import OpenAICompatibleProvider
+from sempropos.intelligence.inference.tier0 import Tier0Provider
 
 SYNTHESIS_FALLBACK_ORDER: tuple[SynthesisProviderName, ...] = (
     "llama_cpp",
