@@ -4,53 +4,12 @@ from __future__ import annotations
 
 import numpy as np
 
-from sempropos import __version__, config
-from sempropos.index import embedder, schema
-from sempropos.intelligence.config import load_settings
-from sempropos.intelligence.contracts import EmbeddingProviderName
+from sempropos import config
+from sempropos.index import schema
+from sempropos.intelligence import facade
 
 _TOOL_IDS: list[int] | None = None
 _TOOL_EMBEDDINGS: np.ndarray | None = None
-
-
-def _get_embedding_meta() -> tuple[str, int, EmbeddingProviderName]:
-    """Read embedding metadata and validate compatibility."""
-    meta = config.read_index_meta()
-    if meta is None:
-        raise RuntimeError(config.MISMATCH_UPDATE_NOTICE)
-
-    model_name = str(meta.get("embedding_model") or "")
-    embedding_dim = meta.get("embedding_dim")
-    embedding_provider = str(meta.get("embedding_provider") or "")
-    sempropos_version = str(meta.get("sempropos_version") or "")
-
-    if not model_name or embedding_dim is None or not embedding_provider:
-        raise RuntimeError(config.MISMATCH_UPDATE_NOTICE)
-
-    if embedding_provider not in {
-        "fastembed_local",
-        "openai_compatible",
-        "huggingface",
-    }:
-        raise RuntimeError(config.MISMATCH_UPDATE_NOTICE)
-
-    try:
-        dim_value = int(embedding_dim)
-    except (TypeError, ValueError):
-        raise RuntimeError(config.MISMATCH_UPDATE_NOTICE) from None
-    if dim_value <= 0:
-        raise RuntimeError(config.MISMATCH_UPDATE_NOTICE)
-
-    if sempropos_version and sempropos_version != __version__:
-        raise RuntimeError(
-            config.VERSION_UPDATE_NOTICE_TEMPLATE.format(version=__version__)
-        )
-
-    settings = load_settings()
-    if settings.embedding_provider != embedding_provider:
-        raise RuntimeError(config.MISMATCH_UPDATE_NOTICE)
-
-    return model_name, dim_value, embedding_provider
 
 
 def _load_embeddings() -> tuple[list[int], np.ndarray]:
@@ -60,15 +19,14 @@ def _load_embeddings() -> tuple[list[int], np.ndarray]:
     if _TOOL_IDS is not None and _TOOL_EMBEDDINGS is not None:
         return _TOOL_IDS, _TOOL_EMBEDDINGS
 
-    _model_name, expected_dim, _provider_name = _get_embedding_meta()
     tool_path = config.tool_embeddings_path()
     if not tool_path.exists():
         _TOOL_IDS = []
-        _TOOL_EMBEDDINGS = np.empty((0, expected_dim), dtype=np.float32)
+        _TOOL_EMBEDDINGS = np.empty((0, 0), dtype=np.float32)
         return _TOOL_IDS, _TOOL_EMBEDDINGS
 
     embeddings = np.load(tool_path)
-    if embeddings.ndim != 2 or embeddings.shape[1] != expected_dim:
+    if embeddings.ndim != 2:
         raise RuntimeError(config.MISMATCH_UPDATE_NOTICE)
 
     with schema.get_connection() as conn:
@@ -93,13 +51,8 @@ def search(query: str, top_k: int = 10) -> list[tuple[int, float]]:
     if not tool_ids or embeddings.size == 0:
         return []
 
-    model_name, expected_dim, provider_name = _get_embedding_meta()
-    vector = embedder.embed_texts(
-        [query],
-        model_name=model_name,
-        provider_name=provider_name,
-    )[0].astype(np.float32)
-    if vector.shape[0] != expected_dim:
+    vector = facade.embed_texts([query])[0].astype(np.float32)
+    if vector.shape[0] != embeddings.shape[1]:
         raise RuntimeError(config.MISMATCH_UPDATE_NOTICE)
 
     scores = embeddings @ vector

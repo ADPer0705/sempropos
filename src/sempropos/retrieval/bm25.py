@@ -8,7 +8,7 @@ from rank_bm25 import BM25Okapi
 
 from sempropos.index import schema
 
-
+# Cached BM25 state for tool description retrieval
 _BM25: BM25Okapi | None = None
 _TOOL_IDS: list[int] = []
 
@@ -42,7 +42,16 @@ def _ensure_index() -> None:
 
 
 def search(query_tokens: list[str], top_k: int = 10) -> list[tuple[int, float]]:
-    """Return top-k BM25 matches for the query token set."""
+    """
+    Return top-k BM25 matches for the query token set.
+    
+    Args:
+        query_tokens(list[str]): A list of token strings representing the user query, which should be preprocessed (e.g., lowercased and tokenized) before being passed to this function.
+        top_k(int): The number of top matches to return.
+
+    Returns:
+        A list of tuples (tool_id, score) representing the top-k matches. Each tuple contains the tool ID and its corresponding BM25 score, sorted in descending order of relevance.
+    """
     if top_k <= 0:
         return []
 
