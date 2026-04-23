@@ -10,29 +10,24 @@ from sempropos.intelligence.contracts import (
     SynthesisRequest,
     SynthesisResult,
 )
-from sempropos.intelligence.facade import (
-    detect_backend,
+from sempropos.intelligence.core import (
+    complete,
     embed_texts,
-    list_embedding_providers,
-    list_synthesis_providers,
-    synthesize,
+    embedding_provider_status,
+    synthesis_provider_status,
 )
-from sempropos.intelligence.policy import IntelligencePolicy, PolicyMode
 
 __all__ = [
     "EmbeddingRequest",
     "EmbeddingProviderName",
     "IntelligenceError",
-    "IntelligencePolicy",
-    "PolicyMode",
     "ProviderExecutionError",
     "SynthesisProviderName",
     "ProviderUnavailableError",
     "SynthesisRequest",
     "SynthesisResult",
-    "detect_backend",
+    "complete",
     "embed_texts",
-    "list_embedding_providers",
-    "list_synthesis_providers",
-    "synthesize",
+    "embedding_provider_status",
+    "synthesis_provider_status",
 ]

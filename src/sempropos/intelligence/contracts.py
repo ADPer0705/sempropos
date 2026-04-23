@@ -7,20 +7,13 @@ from typing import Any, Literal
 
 # Normalized provider names for discovery and selection.
 SynthesisProviderName = Literal[
-    "llama_cpp",
     "ollama",
-    "openai_compatible",
-    "anthropic",
-    "gemini",
-    "mistral",
-    "huggingface",
     "tier0",
 ]
 
 EmbeddingProviderName = Literal[
     "fastembed_local",
-    "openai_compatible",
-    "huggingface",
+    "ollama",
 ]
 
 
