@@ -10,22 +10,33 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
-from shutil import disk_usage
 
 import numpy as np
 from tqdm import tqdm
 
 from sempropos import __version__, config
-from sempropos.index import embedder, parser, schema
-from sempropos.intelligence.config import load_settings
-from sempropos.intelligence.contracts import EmbeddingProviderName
+from sempropos.index import parser, schema
+from sempropos.intelligence import facade
 
 LOGGER = logging.getLogger(__name__)
-MAN_K_PATTERN = re.compile(r"^([^\s,]+)(?:,\s*[^\s,]+)*\s+\(([^)]+)\)\s+-\s+(.*)$")
+MAN_K_PATTERN = re.compile(
+    r"^([^\s,]+)(?:,\s*[^\s,]+)*\s+\(([^)]+)\)\s+-\s+(.*)$"
+)  # Matches "name (section) - description" and captures name, section, description.
 
 
 def _run_man_k(section: str) -> list[tuple[str, int, str]]:
-    """Run man -k for a section and parse rows into tool metadata tuples."""
+    """
+    Run man -k for a section and parse rows into tool metadata tuples.
+
+    Args:
+        section(str): The man page section to query
+
+    Returns: A list of tuples containing (name, section, description) for each discovered tool.
+        name(str): The command name of the tool.
+        section(int): The man page section number (e.g., 1 or 8).
+        description(str): The short description of the tool from the man page summary.
+    """
+    # running man -k for given section
     try:
         result = subprocess.run(
             ["man", "-k", ".", "-s", section],
@@ -40,6 +51,7 @@ def _run_man_k(section: str) -> list[tuple[str, int, str]]:
         stderr = result.stderr.strip()
         raise RuntimeError(f"man -k failed for section {section}: {stderr}")
 
+    # parsing output lines with regex to extract name, section, and description
     rows: list[tuple[str, int, str]] = []
     for line in result.stdout.splitlines():
         match = MAN_K_PATTERN.match(line.strip())
@@ -61,7 +73,14 @@ def _run_man_k(section: str) -> list[tuple[str, int, str]]:
 
 
 def _discover_tools() -> list[tuple[str, int, str]]:
-    """Discover section 1 and 8 tools and deduplicate by command name."""
+    """
+    Discover section 1 and 8 tools and deduplicate by command name.
+
+    Returns: A list of tuples containing (name, section, description) for each unique discovered tool.
+        name(str): The command name of the tool.
+        section(int): The man page section number (e.g., 1 or 8).
+        description(str): The short description of the tool from the man page summary.
+    """
     combined = _run_man_k("1")
     try:
         combined.extend(_run_man_k("8"))
@@ -94,8 +113,23 @@ def _read_man_page(tool: str) -> str:
     return result.stdout
 
 
-def _insert_tool(conn, name: str, section: int, description: str, parsed: dict) -> None:
-    """Insert one tool and its parsed flags/examples into SQLite."""
+def _insert_tool(
+    conn,
+    name: str,
+    section: int,
+    description: str,
+    parsed: parser.ParsedManPage,
+) -> None:
+    """
+    Insert one tool and its parsed flags/examples into SQLite.
+
+    Args:
+        conn: The SQLite connection object.
+        name(str): The command name of the tool.
+        section(int): The man page section number (e.g., 1 or 8).
+        description(str): The short description of the tool from the man page summary.
+        parsed(parser.ParsedManPage): The structured representation of the man page content, including synopsis, flags, and examples.
+    """
     cursor = conn.execute(
         """
         INSERT INTO tools(name, section, description, synopsis)
@@ -131,19 +165,18 @@ def _insert_tool(conn, name: str, section: int, description: str, parsed: dict) 
         )
 
 
-def _embed_texts(
-    texts: list[str],
-    model_name: str,
-    progress: bool,
-    provider_name: EmbeddingProviderName | None,
-) -> np.ndarray:
-    """Embed text rows in batches and return normalized vectors."""
-    try:
-        expected_dim = config.get_embedding_dim(model_name)
-    except KeyError as exc:
-        raise RuntimeError(config.MISMATCH_UPDATE_NOTICE) from exc
+def _embed_texts(texts: list[str], progress: bool) -> np.ndarray:
+    """
+    Embed text rows in batches and return normalized vectors.
+    
+    Args:
+        texts(list[str]): A list of text strings to embed.
+        progress(bool): Whether to display a progress bar for embedding.
+
+    Returns: A 2D numpy array of shape (len(texts), embedding_dim) containing the embedded vectors for the input texts.
+    """
     if not texts:
-        return np.empty((0, expected_dim), dtype=np.float32)
+        return np.empty((0, 0), dtype=np.float32)
 
     all_batches: list[np.ndarray] = []
 
@@ -154,23 +187,23 @@ def _embed_texts(
     for start in iterator:
         end = start + 256
         batch = texts[start:end]
-        encoded = embedder.embed_texts(
-            batch,
-            model_name=model_name,
-            provider_name=provider_name,
-        )
+        encoded = facade.embed_texts(batch)
         all_batches.append(encoded)
 
     vectors = (
-        np.vstack(all_batches)
-        if all_batches
-        else np.empty((0, expected_dim), dtype=np.float32)
+        np.vstack(all_batches) if all_batches else np.empty((0, 0), dtype=np.float32)
     )
     return vectors.astype(np.float32)
 
 
 def _atomic_save_npy(path: Path, values: np.ndarray) -> None:
-    """Persist an ndarray atomically to avoid partial artifact writes."""
+    """
+    Persist an ndarray atomically to avoid partial artifact writes.
+    
+    Args:
+        path(Path): The target file path where the .npy file should be saved.
+        values(np.ndarray): The numpy array to save.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     temp_path: Path | None = None
 
@@ -193,31 +226,24 @@ def _atomic_save_npy(path: Path, values: np.ndarray) -> None:
             temp_path.unlink(missing_ok=True)
 
 
-def _rebuild_embeddings(
-    conn,
-    model_name: str,
-    progress: bool,
-    provider_name: EmbeddingProviderName | None,
-) -> int:
-    """Recompute and persist tool and flag embedding arrays from SQLite."""
+def _rebuild_embeddings(conn, progress: bool) -> int:
+    """
+    Recompute and persist tool and flag embedding arrays from SQLite.
+    
+    Args:
+        conn: The SQLite connection object to query tool and flag descriptions.
+        progress(bool): Whether to display a progress bar for embedding.
+
+    Returns: The dimension of the computed embedding vectors, which is determined based on the shape of the resulting tool or flag embedding arrays. If both arrays are empty, returns 0.
+    """
     tool_rows = conn.execute("SELECT id, description FROM tools ORDER BY id").fetchall()
     flag_rows = conn.execute("SELECT id, description FROM flags ORDER BY id").fetchall()
 
     tool_texts = [row["description"] for row in tool_rows]
     flag_texts = [row["description"] for row in flag_rows]
 
-    tool_vectors = _embed_texts(
-        tool_texts,
-        model_name=model_name,
-        progress=progress,
-        provider_name=provider_name,
-    )
-    flag_vectors = _embed_texts(
-        flag_texts,
-        model_name=model_name,
-        progress=progress,
-        provider_name=provider_name,
-    )
+    tool_vectors = _embed_texts(tool_texts, progress=progress)
+    flag_vectors = _embed_texts(flag_texts, progress=progress)
     flag_ids = np.array([row["id"] for row in flag_rows], dtype=np.int32)
 
     embedding_dim = 0
@@ -226,51 +252,30 @@ def _rebuild_embeddings(
     elif flag_vectors.ndim == 2 and flag_vectors.shape[1] > 0:
         embedding_dim = int(flag_vectors.shape[1])
 
+    if embedding_dim <= 0:
+        raise RuntimeError("Unable to determine embedding dimension from indexed data.")
+
     _atomic_save_npy(config.tool_embeddings_path(), tool_vectors)
     _atomic_save_npy(config.flag_embeddings_path(), flag_vectors)
     _atomic_save_npy(config.flag_embedding_ids_path(), flag_ids)
     return embedding_dim
 
 
-def _select_embedding_model(force_floor_embedding: bool) -> str:
-    """Select embedding model according to install policy."""
-    if force_floor_embedding:
-        print(config.EMBEDDING_FLOOR_NOTICE)
-        return config.EMBEDDING_FLOOR_MODEL
-
-    available = disk_usage(config.data_dir()).free
-    if available < config.EMBEDDING_LOW_DISK_THRESHOLD_BYTES:
-        print(config.EMBEDDING_FLOOR_NOTICE)
-        return config.EMBEDDING_FLOOR_MODEL
-
-    return config.EMBEDDING_PRIMARY_MODEL
-
-
-def build_index(
-    progress: bool = True,
-    *,
-    force_floor_embedding: bool = False,
-    synthesis_model: str | None = None,
-    embedding_provider: EmbeddingProviderName | None = None,
-    embedding_model: str | None = None,
-) -> str:
-    """Build or refresh the local SQLite and embedding index artifacts."""
+def build_index(progress: bool = True) -> None:
+    """
+    Build or refresh the local SQLite and embedding index artifacts.
+    
+    Args:
+        progress(bool): Whether to display progress bars for indexing and embedding operations. Defaults to True.
+    """
     config.ensure_data_dirs()
     schema.initialize()
-    settings = load_settings()
-    selected_embedding_provider = embedding_provider or settings.embedding_provider
-    preferred_embedding_model_name = (
-        embedding_model
-        or settings.embedding_model
-        or _select_embedding_model(force_floor_embedding=force_floor_embedding)
-    )
 
     tools = _discover_tools()
     if not tools:
         raise RuntimeError("No man pages discovered from man -k")
 
     with schema.get_connection() as conn:
-        embedding_model_name = preferred_embedding_model_name
         meta = config.read_index_meta() or {}
 
         existing = {
@@ -283,23 +288,8 @@ def build_index(
                 config.VERSION_UPDATE_NOTICE_TEMPLATE.format(version=__version__)
             )
 
-        # Keep resumable rebuilds deterministic when no explicit model is configured.
-        existing_model_name = str(meta.get("embedding_model") or "")
-        if (
-            existing
-            and not embedding_model
-            and not settings.embedding_model
-            and existing_model_name
-        ):
-            try:
-                config.get_embedding_dim(existing_model_name)
-            except KeyError as exc:
-                raise RuntimeError(config.MISMATCH_UPDATE_NOTICE) from exc
-            embedding_model_name = existing_model_name
-
         pending = [row for row in tools if row[0] not in existing]
 
-        iterator = pending
         pbar = None
         if progress:
             pbar = tqdm(total=len(pending), desc="Indexing", unit="tool")
@@ -330,22 +320,10 @@ def build_index(
         if pbar is not None:
             pbar.close()
 
-        embedding_dim = _rebuild_embeddings(
-            conn,
-            model_name=embedding_model_name,
-            progress=progress,
-            provider_name=selected_embedding_provider,
-        )
+        embedding_dim = _rebuild_embeddings(conn, progress=progress)
 
     config.last_indexed_path().write_text(
         datetime.now(tz=timezone.utc).isoformat(),
         encoding="utf-8",
     )
-    config.write_index_meta(
-        embedding_model=embedding_model_name,
-        embedding_dim=embedding_dim,
-        embedding_provider=selected_embedding_provider,
-        synthesis_model=synthesis_model
-        or config.synthesis_model_spec("primary")["filename"],
-    )
-    return embedding_model_name
+    config.write_index_meta(embedding_dim=embedding_dim)

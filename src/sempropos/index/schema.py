@@ -1,4 +1,8 @@
-"""SQLite schema and connection helpers."""
+"""
+SQLite schema and connection helpers.
+
+This module defines the SQLite schema for storing tool information, flags and examples, as well as a context manager for obtaining database connections.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +12,7 @@ from pathlib import Path
 
 from sempropos import config
 
+# SQL Schema for tools, flags, and examples tables with appropriate indices.
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS tools (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,7 +46,15 @@ CREATE INDEX IF NOT EXISTS idx_examples_tool ON examples(tool_id);
 
 @contextmanager
 def get_connection(path: Path | None = None):
-    """Open a SQLite connection configured for sempropos schema usage."""
+    """
+    Open a SQLite connection configured for sempropos schema usage.
+    
+    Args:
+        path: Optional path to the SQLite database file. If None, uses the default path from config.
+
+    Yields:
+        A sqlite3.Connection object with foreign keys enabled.
+    """
     config.ensure_data_dirs()
     db_file = path or config.db_path()
     db_file.parent.mkdir(parents=True, exist_ok=True)
@@ -56,7 +69,12 @@ def get_connection(path: Path | None = None):
 
 
 def initialize(path: Path | None = None) -> None:
-    """Create required tables and indices if they do not exist."""
+    """
+    Create required tables and indices if they do not exist.
+    
+    Args:
+        path: Optional path to the SQLite database file. If None, uses the default path from config.
+    """
     with get_connection(path) as conn:
         conn.executescript(SCHEMA_SQL)
         conn.commit()

@@ -1,4 +1,9 @@
-"""Index staleness checks based on package database mtimes."""
+"""
+Index staleness checks based on package database mtimes.
+
+This module checks if current embeddings are stale.
+This is done by comparing the last indexed timestamp with the modification time of the package database.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +12,8 @@ from pathlib import Path
 
 from sempropos import config
 
+# Known package database paths for common Linux distributions.
+# This is not exhaustive and may need to be extended for other distros or package managers.
 PACKAGE_DB_PATHS = {
     "debian": "/var/lib/dpkg/status",
     "arch": "/var/lib/pacman/sync",
@@ -16,7 +23,12 @@ PACKAGE_DB_PATHS = {
 
 
 def detect_package_db() -> str | None:
-    """Return the first known package database path that exists locally."""
+    """
+    Return the first known package database path that exists locally.
+    
+    Returns:
+        Str if the path to the package database if found, otherwise None.
+    """
     for path in PACKAGE_DB_PATHS.values():
         if Path(path).exists():
             return path
@@ -24,7 +36,12 @@ def detect_package_db() -> str | None:
 
 
 def read_last_indexed() -> datetime | None:
-    """Read the last_indexed timestamp marker as an ISO datetime."""
+    """
+    Read the last_indexed timestamp marker as an ISO datetime.
+
+    Returns:
+        Datetime if the marker exists and is valid, otherwise None.
+    """
     marker = config.last_indexed_path()
     if not marker.exists():
         return None
@@ -40,14 +57,27 @@ def read_last_indexed() -> datetime | None:
 
 
 def _to_utc_timestamp(value: datetime) -> float:
-    """Convert datetime to epoch seconds in UTC consistently."""
+    """
+    Convert datetime to epoch seconds in UTC consistently.
+
+    Args:
+        value: The datetime to convert.
+
+    Returns:
+        Float representing the epoch seconds in UTC.
+    """
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc).timestamp()
     return value.astimezone(timezone.utc).timestamp()
 
 
 def is_stale() -> bool:
-    """Return True when package metadata is newer than the last index run."""
+    """
+    Return True when package metadata is newer than the last index run.
+
+    Returns:
+        Bool indicating if the index is stale.
+    """
     last_indexed = read_last_indexed()
     if last_indexed is None:
         return True
