@@ -1,101 +1,118 @@
 """
 Utilities and helper functions for sempropos.
 
-This module provides shared, reusable helper logic for command parsing,
-prompt construction, text manipulation, and timestamp normalization.
+This module provides shared, reusable helper logic including:
+    - Keyring integration for secure secret storage (optional, depends on `keyring` package).
+    - Atomic file writing utilities to ensure safe updates to files without risking corruption.
+    - Miscellaneous utilities such as environment detection.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import os
+import sys
+import subprocess
+import importlib.util
+import tempfile
+from pathlib import Path
 
-# ============================================================================
-# Command and Prompt Parsing
-# ============================================================================
+# ----- Miscellaneous utilities -----
 
+def is_headless_environment() -> bool:
+    """Detect if running in headless (non-interactive) environment."""
+    return not (sys.stdin.isatty() and sys.stdout.isatty())
 
-def extract_command(text: str) -> str:
-    """
-    Extract the shell command from LLM synthesis output.
+def install_and_import(package: str) -> None:
+    """Dynamically install and import a package if it's not already available."""
+    if importlib.util.find_spec(package) is not None:
+        return importlib.import_module(package)
+    
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
 
-    Looks for lines prefixed with "Command:" or backtick-wrapped content,
-    returning the first non-empty, cleaned line.
-    """
-    for line in text.splitlines():
-        cleaned = line.strip().strip("`")
-        if not cleaned:
-            continue
-        if cleaned.lower().startswith("command:"):
-            cleaned = cleaned.split(":", maxsplit=1)[1].strip()
-        if cleaned:
-            return cleaned
-    return text.strip()
+        return importlib.import_module(package)
+    except subprocess.CalledProcessError as e:
+        raise ImportError(f"Failed to install package '{package}'. Please install it manually. Error: {e}") from e
 
+# ==================================================
+# Keyring integration utilities
+# ==================================================
 
-def build_final_prompt(base_prompt: str, model_hint: str) -> str:
-    """Apply model-specific prompt suffixes if needed."""
-    lowered = model_hint.lower()
-    if "qwen3" in lowered:
-        return base_prompt + "\n/no_think"
-    return base_prompt
+def keyring_store_secret(secret_name: str, value: str) -> bool:
+    """Store a secret in the system keyring (if available)."""
+    try:
+        import keyring  # type: ignore[import-not-found]
+    except ModuleNotFoundError:
+        return False
 
-
-def word_count(text: str) -> int:
-    """Return a conservative word-budget count for prompt sizing."""
-    return len(text.split())
-
-
-def truncate_words(text: str, limit: int) -> str:
-    """Trim text to a fixed word budget while preserving stable formatting."""
-    if limit <= 0:
-        return ""
-    words = text.split()
-    if len(words) <= limit:
-        return text
-
-    truncated_words = words[:limit]
-    if "Command:" in truncated_words:
-        return " ".join(truncated_words)
-
-    if limit == 1:
-        return "Command:"
-
-    return " ".join(words[: limit - 1] + ["Command:"])
+    try:
+        keyring.set_password("sempropos", secret_name, value)
+    except Exception:  # noqa: BLE001
+        return False
+    return True
 
 
-def format_flag(flag: dict) -> str:
-    """Render one flag record into the prompt's human-readable flag line."""
-    forms = [flag.get("flag") or "*"]
-    if flag.get("long_flag"):
-        forms.append(flag["long_flag"])
+def keyring_load_secret(secret_name: str) -> str | None:
+    """Retrieve a secret from the system keyring (if available)."""
+    try:
+        import keyring  # type: ignore[import-not-found]
+    except ModuleNotFoundError:
+        return None
 
-    head = ", ".join(forms)
-    if flag.get("takes_value"):
-        hint = flag.get("value_hint") or "value"
-        head = f"{head} <{hint}>"
+    try:
+        value = keyring.get_password("sempropos", secret_name)
+    except Exception:  # noqa: BLE001
+        return None
 
-    description = (flag.get("description") or "").strip()
-    return f"  {head} - {description}"
-
-
-def format_key_flags(flags: list[dict], max_items: int = 3) -> str:
-    """Render a compact, human-readable summary of important flags."""
-    if not flags:
-        return "none"
-
-    items: list[str] = []
-    for flag in flags[:max_items]:
-        label = flag.get("flag") or "*"
-        description = (flag.get("description") or "").strip()
-        if description:
-            items.append(f"{label} ({description})")
-        else:
-            items.append(label)
-    return ", ".join(items)
+    return value.strip() if value and value.strip() else None
 
 
-def to_utc_timestamp(value: datetime) -> float:
-    """Convert datetime to epoch seconds in UTC consistently."""
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc).timestamp()
-    return value.astimezone(timezone.utc).timestamp()
+# ==================================================
+# Atomic file writing utilities
+# ==================================================
+
+def atomic_write_text(path: Path, content: str) -> None:
+    """Write text to a file atomically using tempfile and os.replace."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = None
+
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=str(path.parent),
+            delete=False,
+        ) as tmp_file:
+            tmp_file.write(content)
+            tmp_file.flush()
+            os.fsync(tmp_file.fileno())
+            tmp_path = tmp_file.name
+
+        os.replace(tmp_path, str(path))
+    except Exception:
+        if tmp_path:
+            Path(tmp_path).unlink(missing_ok=True)
+        raise
+
+
+def atomic_write_bytes(path: Path, content: bytes) -> None:
+    """Write bytes to a file atomically using tempfile and os.replace."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = None
+
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=str(path.parent),
+            delete=False,
+        ) as tmp_file:
+            tmp_file.write(content)
+            tmp_file.flush()
+            os.fsync(tmp_file.fileno())
+            tmp_path = tmp_file.name
+
+        os.replace(tmp_path, str(path))
+    except Exception:
+        if tmp_path:
+            Path(tmp_path).unlink(missing_ok=True)
+        raise

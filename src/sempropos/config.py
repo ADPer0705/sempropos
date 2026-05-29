@@ -1,26 +1,42 @@
-"""Configuration and shared paths for sempropos."""
+"""
+Unified configuration and runtime settings for sempropos.
+
+This module manages all application-level and provider-specific configuration:
+  - Application paths and data directories
+  - Index metadata and file locations
+  - Embedding and synthesis model specifications
+  - Intelligence provider configurations and runtime settings
+  - Configuration persistence (TOML-based)
+"""
 
 from __future__ import annotations
 
-import json
-import os
-import tempfile
-from datetime import datetime, timezone
+import tomllib
+import tomli_w
+import platformdirs
 from pathlib import Path
+from datetime import datetime, timezone
+from dataclasses import dataclass, field, asdict
+from typing import Literal, get_args
 
 from sempropos import __version__
+from sempropos.utils import atomic_write_text
+
+
+# ============================================================================
+# Application Constants
+# ============================================================================
 
 APP_NAME = "sempropos"
-EMBEDDING_PRIMARY_MODEL = "BAAI/bge-base-en-v1.5"
-EMBEDDING_FLOOR_MODEL = "BAAI/bge-small-en-v1.5"
 
-EMBEDDING_DIMS = {
-    EMBEDDING_PRIMARY_MODEL: 768,
-    EMBEDDING_FLOOR_MODEL: 384,
-}
+# Embedding models: primary for normal RAM, floor model for constrained environments
+EMBEDDING_PRIMARY_MODEL = "nomic-ai/nomic-embed-text-v1.5-Q"
 
-EMBEDDING_LOW_DISK_THRESHOLD_BYTES = 200 * 1024 * 1024
-SYNTHESIS_LOW_RAM_THRESHOLD_BYTES = 3 * 1024 * 1024 * 1024
+# ============================================================================
+# Data Files and Paths
+# ============================================================================
+
+dirs = platformdirs.PlatformDirs("sempropos", "adper")
 
 TOOL_EMBEDDINGS_FILE = "tool_embeddings.npy"
 FLAG_EMBEDDINGS_FILE = "flag_embeddings.npy"
@@ -29,225 +45,311 @@ LAST_INDEXED_FILE = "last_indexed"
 INDEX_META_FILE = "index.meta"
 DB_FILE = "index.db"
 
-LLAMA_CPP_RELEASE = "b5000"
+# ===== config files =====
 
-LLAMA_CPP_ASSETS = {
-    ("Linux", "x86_64"): f"llama-{LLAMA_CPP_RELEASE}-bin-ubuntu-x64.zip",
-    ("Linux", "aarch64"): f"llama-{LLAMA_CPP_RELEASE}-bin-ubuntu-arm64.zip",
-}
+INTELLIGENCE_CONFIG_FILE = "intelligence.toml"
 
-SYNTHESIS_MODELS = {
-    "primary": {
-        "repo_id": "unsloth/gemma-4-E2B-it-GGUF",
-        "filename": "gemma-4-E2B-it-Q4_K_M.gguf",
-        "sha256": "",
-    },
-    "floor": {
-        "repo_id": "Qwen/Qwen3-0.6B-GGUF",
-        "filename": "qwen3-0.6b-q4_k_m.gguf",
-        "sha256": "",
-    },
-}
-
-OLLAMA_PREFERRED = ["gemma4:e2b", "qwen3:1.7b", "qwen3:0.6b", "gemma3:1b"]
-
-INSTALL_FLOOR_NOTICE = (
-    "[sempropos] Using compact synthesis model (limited RAM detected)."
-)
-EMBEDDING_FLOOR_NOTICE = "[sempropos] Using compact embedding model (low disk space)."
+# ============================================================================
+# Information Messages
+# ============================================================================
 
 MISMATCH_UPDATE_NOTICE = (
     "[sempropos] Model/index metadata mismatch. Re-indexing required.\n"
     "Run: sempropos --update"
 )
-
 VERSION_UPDATE_NOTICE_TEMPLATE = (
     "[sempropos] Model updated in sempropos {version}. Re-indexing required.\n"
     "Run: sempropos --update"
 )
 
+# ============================================================================
+# Provider Configuration Types
+# ============================================================================
 
-def synthesis_model_spec(tier: str) -> dict[str, str]:
-    """Return synthesis model metadata for a known tier."""
-    if tier not in SYNTHESIS_MODELS:
-        raise KeyError(f"Unknown synthesis tier: {tier}")
-    spec = SYNTHESIS_MODELS[tier]
-    return {
-        "repo_id": str(spec["repo_id"]),
-        "filename": str(spec["filename"]),
-        "sha256": str(spec["sha256"]),
-    }
+# ===== Provider name types =====
+# Static types for Linting
+SynthesisProviders = Literal[
+    "tier0",
+    "ollama",
+]
+EmbeddingProviders = Literal[
+    "fastembed_local",
+    "ollama",
+]
+
+# Runtime types for validation and config loading
+SUPPORTED_SYNTHESIS_PROVIDERS: tuple[str, ...] = get_args(SynthesisProviders)
+SUPPORTED_EMBEDDING_PROVIDERS: tuple[str, ...] = get_args(EmbeddingProviders)
+SUPPORTED_PROVIDERS: tuple[str, ...] = tuple(set(SUPPORTED_SYNTHESIS_PROVIDERS + SUPPORTED_EMBEDDING_PROVIDERS))
+
+DEFAULT_SYNTHESIS_PROVIDER = "tier0"
+DEFAULT_EMBEDDING_PROVIDER = "fastembed_local"
+
+
+# ===== Provider runtime configuration =====
+@dataclass(frozen=True)
+class ProviderRuntimeConfig:
+    """
+    Provider-specific runtime configuration options.
+
+    Stores API credentials, connection details, timeout settings, and
+    model specifications for a single provider.
+
+    Attributes:
+        model: Model identifier (e.g., "gpt-4", "gemma4:e2b").
+        base_url: API endpoint base URL (e.g., "https://api.openai.com/v1").
+        api_key_env: Environment variable name for API key (e.g., "OPENAI_API_KEY").
+        api_key_secret: Keyring secret name for stored API key.
+        api_key_plaintext: Plaintext API key (fallback, should use keyring).
+        timeout_seconds: Request timeout in seconds.
+    """
+
+    model: str | None = None
+    base_url: str | None = None
+    api_key_env: str | None = None
+    api_key_secret: str | None = None
+    api_key_plaintext: str | None = None
+    timeout_seconds: float = 30.0
+
+
+@dataclass(frozen=True)
+class IntelligenceConfig:
+    """
+    Resolved runtime settings for synthesis and embedding providers.
+
+    Combines selected providers, model choices, and per-provider configuration.
+    Loaded from TOML and used to initialize the intelligence layer at runtime.
+
+    Attributes:
+        synthesis_provider: Selected LLM synthesis provider.
+        embedding_provider: Selected embedding provider.
+        providers: Dict mapping provider name to its runtime config.
+    """
+
+    synthesis_provider: str = DEFAULT_SYNTHESIS_PROVIDER
+    embedding_provider: str = DEFAULT_EMBEDDING_PROVIDER
+    providers: dict[str, ProviderRuntimeConfig] = field(default_factory=dict)
+
+
+# ============================================================================
+# Application Directory Methods
+# ============================================================================
 
 
 def data_dir() -> Path:
-    """
-    Get the data directory for the application.
-
-    The directory is determined in the following order:
-    1. The `SEMPROPOS_DATA_DIR` environment variable, if set.
-    2. The `XDG_DATA_HOME` environment variable, if set, with the application name appended.
-    3. The default path `~/.local/share/sempropos`.
-    """
-    base = os.environ.get("SEMPROPOS_DATA_DIR")
-    if base:
-        return Path(base).expanduser()
-
-    xdg = os.environ.get("XDG_DATA_HOME")
-    if xdg:
-        return Path(xdg).expanduser() / APP_NAME
-
-    return Path("~/.local/share").expanduser() / APP_NAME
+    """Get the application data directory."""
+    return dirs.user_data_path
 
 
+def config_dir() -> Path:
+    """Get the application configuration directory."""
+    return dirs.user_config_path
+
+
+# ===== Directory initialization =====
+def ensure_data_dirs() -> None:
+    """Create application data directories if missing."""
+    directories = (data_dir(), config_dir())
+    for directory in directories:
+        directory.mkdir(parents=True, exist_ok=True)
+
+
+# ===== File paths =====
 def db_path() -> Path:
-    """Return the SQLite index database path."""
     return data_dir() / DB_FILE
 
 
 def tool_embeddings_path() -> Path:
-    """Return the persisted tool embedding matrix path."""
     return data_dir() / TOOL_EMBEDDINGS_FILE
 
 
 def flag_embeddings_path() -> Path:
-    """Return the persisted flag embedding matrix path."""
     return data_dir() / FLAG_EMBEDDINGS_FILE
 
 
 def flag_embedding_ids_path() -> Path:
-    """Return the flag embedding id mapping path."""
     return data_dir() / FLAG_EMBEDDING_IDS_FILE
 
 
 def last_indexed_path() -> Path:
-    """Return the staleness marker file path."""
     return data_dir() / LAST_INDEXED_FILE
 
 
 def index_meta_path() -> Path:
-    """Return index metadata file path."""
     return data_dir() / INDEX_META_FILE
 
 
-def models_dir() -> Path:
-    """Return the directory where local GGUF models are stored."""
-    return data_dir() / "models"
+def intelligence_config_path() -> Path:
+    return config_dir() / INTELLIGENCE_CONFIG_FILE
 
 
-def model_path_candidates() -> list[Path]:
-    """Return model file candidates in preference order."""
-    candidates = [
-        Path(models_dir() / str(spec["filename"])) for spec in SYNTHESIS_MODELS.values()
-    ]
-    # Keep deterministic order and drop duplicates.
-    seen: set[Path] = set()
-    output: list[Path] = []
-    for item in candidates:
-        if item in seen:
-            continue
-        seen.add(item)
-        output.append(item)
-    return output
-
-
-def preferred_model_path() -> Path:
-    """Return the primary GGUF model path expected by install tooling."""
-    return models_dir() / str(SYNTHESIS_MODELS["primary"]["filename"])
-
-
-def resolve_model_path() -> Path | None:
-    """Return the first locally available model candidate, if any."""
-    for path in model_path_candidates():
-        if path.exists():
-            return path
-    return None
-
-
-def bin_dir() -> Path:
-    """Return the directory where local helper binaries are stored."""
-    return data_dir() / "bin"
-
-
-def local_llama_cli_path() -> Path:
-    """Return the expected location of the bundled llama-cli binary."""
-    return bin_dir() / "llama-cli"
-
-
-def ensure_data_dirs() -> None:
-    """Create application data directories when missing."""
-    directories = (data_dir(), models_dir(), bin_dir())
-    for directory in directories:
-        directory.mkdir(parents=True, exist_ok=True)
-        _assert_directory_writable(directory)
-
-
-def _assert_directory_writable(directory: Path) -> None:
-    """Raise RuntimeError when a target directory is not writable."""
-    try:
-        with tempfile.NamedTemporaryFile(dir=directory, delete=True):
-            pass
-    except OSError as exc:
-        raise RuntimeError(f"Directory is not writable: {directory}") from exc
-
-
-def get_embedding_dim(model_name: str) -> int:
-    """Return embedding dimensionality for a configured embedding model."""
-    dim = EMBEDDING_DIMS.get(model_name)
-    if dim is None:
-        raise KeyError(f"Unknown embedding model: {model_name}")
-    return int(dim)
+# ============================================================================
+# Index Metadata I/O Methods
+# ============================================================================
 
 
 def write_index_meta(
     *,
-    embedding_model: str,
     embedding_dim: int,
-    synthesis_model: str,
-    embedding_provider: str | None = None,
+    embedding_model: str,
+    embedding_provider: str,
 ) -> None:
-    """Write index metadata used for query-time compatibility checks."""
-    ensure_data_dirs()
+    """Write index metadata file used for query-time compatibility checks."""
     destination = index_meta_path()
-    temporary = destination.with_suffix(".tmp")
 
     payload = {
-        "embedding_model": embedding_model,
         "embedding_dim": int(embedding_dim),
+        "embedding_model": embedding_model,
         "embedding_provider": embedding_provider,
-        "synthesis_model": synthesis_model,
         "indexed_at": datetime.now(tz=timezone.utc).isoformat(),
         "sempropos_version": __version__,
     }
-    temporary.write_text(
-        json.dumps(payload, indent=2, sort_keys=True),
-        encoding="utf-8",
+    atomic_write_text(
+        destination,
+        tomli_w.dumps(payload),
     )
-    os.replace(temporary, destination)
 
-
+#TODO: Decide read_validated_index_meta() vs read_index_meta()
 def read_index_meta() -> dict | None:
-    """Read index metadata; return None when absent or invalid."""
+    """Read index metadata file."""
     path = index_meta_path()
     if not path.exists():
         return None
 
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+        payload = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (tomllib.TOMLDecodeError, OSError):
         return None
 
-    if not isinstance(payload, dict):
+    return payload if isinstance(payload, dict) else None
+
+
+def read_validated_index_meta() -> tuple[str, int, str]:
+    """Return validated embedding metadata needed by query-time retrieval."""
+    meta = read_index_meta()
+    if meta is None:
+        raise RuntimeError(MISMATCH_UPDATE_NOTICE)
+
+    model_name = str(meta.get("embedding_model") or "")
+    embedding_dim = meta.get("embedding_dim")
+    embedding_provider = str(meta.get("embedding_provider") or "")
+    sempropos_version = str(meta.get("sempropos_version") or "")
+
+    if not model_name or embedding_dim is None or not embedding_provider:
+        raise RuntimeError(MISMATCH_UPDATE_NOTICE)
+
+    if embedding_provider not in SUPPORTED_EMBEDDING_PROVIDERS:
+        raise RuntimeError(MISMATCH_UPDATE_NOTICE)
+
+    try:
+        dim_value = int(embedding_dim)
+    except (TypeError, ValueError):
+        raise RuntimeError(MISMATCH_UPDATE_NOTICE) from None
+    if dim_value <= 0:
+        raise RuntimeError(MISMATCH_UPDATE_NOTICE)
+
+    if sempropos_version and sempropos_version != __version__:
+        raise RuntimeError(VERSION_UPDATE_NOTICE_TEMPLATE.format(version=__version__))
+
+    settings = load_intelligence_config()
+    if settings.embedding_provider != embedding_provider:
+        raise RuntimeError(MISMATCH_UPDATE_NOTICE)
+
+    return model_name, dim_value, embedding_provider
+
+
+# ============================================================================
+# Provider Configuration Methods
+# ============================================================================
+
+
+def normalize_provider_name(
+    value: str | None, supported: tuple[str, ...]
+) -> str | None:
+    """Normalize and validate a provider name string."""
+    if not value:
         return None
-    return payload
+    lowered = value.strip().lower().replace("-", "_")
+    return lowered if lowered in supported else None
 
 
-def select_ollama_model(models: list[str]) -> str | None:
-    """Select the first compatible Ollama model from a discovered list."""
-    for candidate in OLLAMA_PREFERRED:
-        if candidate in models:
-            return candidate
-    for candidate in OLLAMA_PREFERRED:
-        for item in models:
-            if item.startswith(candidate):
-                return item
-    return None
+def load_intelligence_config() -> IntelligenceConfig:
+    """Load intelligence settings from TOML config file."""
+    try:
+        intelligence_config = tomllib.loads(
+            intelligence_config_path().read_text(encoding="utf-8")
+        )
+    except (OSError, tomllib.TOMLDecodeError):
+        intelligence_config = {}
+
+    synthesis_provider = normalize_provider_name(
+        intelligence_config.get("synthesis_provider"), SUPPORTED_SYNTHESIS_PROVIDERS
+    )
+    embedding_provider = normalize_provider_name(
+        intelligence_config.get("embedding_provider"), SUPPORTED_EMBEDDING_PROVIDERS
+    )
+
+    if not synthesis_provider:
+        synthesis_provider = DEFAULT_SYNTHESIS_PROVIDER
+    if not embedding_provider:  
+        embedding_provider = DEFAULT_EMBEDDING_PROVIDER
+
+    raw_providers = intelligence_config.get("providers", {})
+    providers = {}
+
+    for name, block in raw_providers.items():
+        if not isinstance(name, str) or name not in SUPPORTED_PROVIDERS:
+            continue
+        if not isinstance(block, dict):
+            block = {}
+
+        providers[name] = ProviderRuntimeConfig(
+            model=(block.get("model") if isinstance(block.get("model"), str) else None),
+            base_url=(
+                block.get("base_url")
+                if isinstance(block.get("base_url"), str)
+                else None
+            ),
+            api_key_env=(
+                block.get("api_key_env")
+                if isinstance(block.get("api_key_env"), str)
+                else None
+            ),
+            api_key_secret=(
+                block.get("api_key_secret")
+                if isinstance(block.get("api_key_secret"), str)
+                else None
+            ),
+            api_key_plaintext=(
+                block.get("api_key_plaintext")
+                if isinstance(block.get("api_key_plaintext"), str)
+                else None
+            ),
+            timeout_seconds=(
+                float(block.get("timeout_seconds"))
+                if "timeout_seconds" in block
+                and isinstance(block.get("timeout_seconds"), (int, float))
+                else 30.0
+            ),
+        )
+
+    return IntelligenceConfig(
+        synthesis_provider=synthesis_provider,
+        embedding_provider=embedding_provider,
+        providers=providers,
+    )
+
+
+def save_intelligence_config(settings: IntelligenceConfig) -> Path:
+    """Persist intelligence settings to TOML file, safely dropping None values."""
+    path = intelligence_config_path()
+
+    # Dictionary factory to strip None values so tomli_w doesn't crash
+    def strip_none(data):
+        return {k: v for k, v in data if v is not None}
+
+    clean_dict = asdict(settings, dict_factory=strip_none)
+    toml_string = tomli_w.dumps(clean_dict)
+    
+    atomic_write_text(path, toml_string)
+    return path

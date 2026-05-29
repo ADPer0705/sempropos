@@ -1,7 +1,6 @@
 """Top-level executable entry point for sempropos."""
 
-from sempropos.cli import main
-
+from src.sempropos.cli import cli
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    cli()

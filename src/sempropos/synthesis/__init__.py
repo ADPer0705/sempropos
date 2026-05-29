@@ -1,1 +1,0 @@
-"""Synthesis modules for sempropos."""

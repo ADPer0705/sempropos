@@ -13,11 +13,11 @@ from pathlib import Path
 from sempropos import config
 
 # Known package database paths for common Linux distributions.
-# This is not exhaustive and may need to be extended for other distros or package managers.
+# NOTE: This is a heuristic and may not cover all cases or distributions.
 PACKAGE_DB_PATHS = {
     "debian": "/var/lib/dpkg/status",
     "arch": "/var/lib/pacman/sync",
-    "fedora": "/var/lib/rpm/Packages",
+    "fedora": "/var/lib/rpm/rpmdb.sqlite",  # Updated for modern dnf/rpm
     "alpine": "/lib/apk/db/installed",
 }
 
@@ -25,7 +25,7 @@ PACKAGE_DB_PATHS = {
 def detect_package_db() -> str | None:
     """
     Return the first known package database path that exists locally.
-    
+
     Returns:
         Str if the path to the package database if found, otherwise None.
     """
@@ -40,7 +40,8 @@ def read_last_indexed() -> datetime | None:
     Read the last_indexed timestamp marker as an ISO datetime.
 
     Returns:
-        Datetime if the marker exists and is valid, otherwise None.
+        Datetime if the marker exists and is valid.
+        None if the marker file is missing, empty, or contains invalid data.
     """
     marker = config.last_indexed_path()
     if not marker.exists():
@@ -71,7 +72,7 @@ def _to_utc_timestamp(value: datetime) -> float:
     return value.astimezone(timezone.utc).timestamp()
 
 
-def is_stale() -> bool:
+def is_index_stale() -> bool:
     """
     Return True when package metadata is newer than the last index run.
 

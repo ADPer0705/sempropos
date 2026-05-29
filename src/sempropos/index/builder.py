@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import logging
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -16,27 +16,13 @@ from tqdm import tqdm
 
 from sempropos import __version__, config
 from sempropos.index import parser, schema
-from sempropos.intelligence import facade
+from sempropos.intelligence.facade import embed_texts, detect_embedding_provider
+from sempropos.utils import atomic_write_text
 
-LOGGER = logging.getLogger(__name__)
-MAN_K_PATTERN = re.compile(
-    r"^([^\s,]+)(?:,\s*[^\s,]+)*\s+\(([^)]+)\)\s+-\s+(.*)$"
-)  # Matches "name (section) - description" and captures name, section, description.
+MAN_K_PATTERN = re.compile(r"^([^\s,]+)(?:,\s*[^\s,]+)*\s+\(([^)]+)\)\s+-\s+(.*)$")
 
 
 def _run_man_k(section: str) -> list[tuple[str, int, str]]:
-    """
-    Run man -k for a section and parse rows into tool metadata tuples.
-
-    Args:
-        section(str): The man page section to query
-
-    Returns: A list of tuples containing (name, section, description) for each discovered tool.
-        name(str): The command name of the tool.
-        section(int): The man page section number (e.g., 1 or 8).
-        description(str): The short description of the tool from the man page summary.
-    """
-    # running man -k for given section
     try:
         result = subprocess.run(
             ["man", "-k", ".", "-s", section],
@@ -48,10 +34,8 @@ def _run_man_k(section: str) -> list[tuple[str, int, str]]:
         raise RuntimeError("Failed to execute man -k") from exc
 
     if result.returncode != 0:
-        stderr = result.stderr.strip()
-        raise RuntimeError(f"man -k failed for section {section}: {stderr}")
+        return []
 
-    # parsing output lines with regex to extract name, section, and description
     rows: list[tuple[str, int, str]] = []
     for line in result.stdout.splitlines():
         match = MAN_K_PATTERN.match(line.strip())
@@ -73,43 +57,36 @@ def _run_man_k(section: str) -> list[tuple[str, int, str]]:
 
 
 def _discover_tools() -> list[tuple[str, int, str]]:
-    """
-    Discover section 1 and 8 tools and deduplicate by command name.
-
-    Returns: A list of tuples containing (name, section, description) for each unique discovered tool.
-        name(str): The command name of the tool.
-        section(int): The man page section number (e.g., 1 or 8).
-        description(str): The short description of the tool from the man page summary.
-    """
     combined = _run_man_k("1")
     try:
         combined.extend(_run_man_k("8"))
     except RuntimeError:
-        # Section 8 may not exist on all systems.
         pass
 
-    seen: set[str] = set()
+    seen: set[tuple[str, int]] = set()
     deduped: list[tuple[str, int, str]] = []
+    
     for name, section, description in combined:
-        if name in seen:
+        if (name, section) in seen:
             continue
-        seen.add(name)
+        if not shutil.which(name):
+            continue
+        seen.add((name, section))
         deduped.append((name, section, description))
 
     return deduped
 
 
-def _read_man_page(tool: str) -> str:
-    """Read a tool's man page as plain text using man -P cat."""
+def _read_man_page(tool: str, section: int) -> str:
     result = subprocess.run(
-        ["man", "-P", "cat", tool],
+        ["man", "-P", "cat", str(section), tool],
         check=False,
         capture_output=True,
         text=True,
     )
     if result.returncode != 0:
         stderr = result.stderr.strip()
-        raise RuntimeError(stderr or f"man page lookup failed for {tool}")
+        raise RuntimeError(stderr or f"man page lookup failed for {tool}({section})")
     return result.stdout
 
 
@@ -120,16 +97,6 @@ def _insert_tool(
     description: str,
     parsed: parser.ParsedManPage,
 ) -> None:
-    """
-    Insert one tool and its parsed flags/examples into SQLite.
-
-    Args:
-        conn: The SQLite connection object.
-        name(str): The command name of the tool.
-        section(int): The man page section number (e.g., 1 or 8).
-        description(str): The short description of the tool from the man page summary.
-        parsed(parser.ParsedManPage): The structured representation of the man page content, including synopsis, flags, and examples.
-    """
     cursor = conn.execute(
         """
         INSERT INTO tools(name, section, description, synopsis)
@@ -166,28 +133,22 @@ def _insert_tool(
 
 
 def _embed_texts(texts: list[str], progress: bool) -> np.ndarray:
-    """
-    Embed text rows in batches and return normalized vectors.
-    
-    Args:
-        texts(list[str]): A list of text strings to embed.
-        progress(bool): Whether to display a progress bar for embedding.
-
-    Returns: A 2D numpy array of shape (len(texts), embedding_dim) containing the embedded vectors for the input texts.
-    """
     if not texts:
         return np.empty((0, 0), dtype=np.float32)
 
     all_batches: list[np.ndarray] = []
-
-    iterator = range(0, len(texts), 256)
+    
+    BATCH_SIZE = 32
+    iterator = range(0, len(texts), BATCH_SIZE)
+    
     if progress:
         iterator = tqdm(iterator, desc="Embedding", unit="batch")
 
     for start in iterator:
-        end = start + 256
-        batch = texts[start:end]
-        encoded = facade.embed_texts(batch)
+        batch = texts[start : start + BATCH_SIZE]
+        safe_batch = [text[:2500] for text in batch]
+
+        encoded = embed_texts(safe_batch)  # Calls the facade
         all_batches.append(encoded)
 
     vectors = (
@@ -197,13 +158,6 @@ def _embed_texts(texts: list[str], progress: bool) -> np.ndarray:
 
 
 def _atomic_save_npy(path: Path, values: np.ndarray) -> None:
-    """
-    Persist an ndarray atomically to avoid partial artifact writes.
-    
-    Args:
-        path(Path): The target file path where the .npy file should be saved.
-        values(np.ndarray): The numpy array to save.
-    """
     path.parent.mkdir(parents=True, exist_ok=True)
     temp_path: Path | None = None
 
@@ -227,15 +181,6 @@ def _atomic_save_npy(path: Path, values: np.ndarray) -> None:
 
 
 def _rebuild_embeddings(conn, progress: bool) -> int:
-    """
-    Recompute and persist tool and flag embedding arrays from SQLite.
-    
-    Args:
-        conn: The SQLite connection object to query tool and flag descriptions.
-        progress(bool): Whether to display a progress bar for embedding.
-
-    Returns: The dimension of the computed embedding vectors, which is determined based on the shape of the resulting tool or flag embedding arrays. If both arrays are empty, returns 0.
-    """
     tool_rows = conn.execute("SELECT id, description FROM tools ORDER BY id").fetchall()
     flag_rows = conn.execute("SELECT id, description FROM flags ORDER BY id").fetchall()
 
@@ -260,43 +205,63 @@ def _rebuild_embeddings(conn, progress: bool) -> int:
     _atomic_save_npy(config.flag_embedding_ids_path(), flag_ids)
     return embedding_dim
 
+def _clear_index_data() -> None:
+    """Wipe existing database and embedding files for a clean rebuild."""
+    paths = [
+        config.db_path(),
+        config.tool_embeddings_path(),
+        config.flag_embeddings_path(),
+        config.flag_embedding_ids_path(),
+        config.index_meta_path(),
+        config.last_indexed_path(),
+    ]
+    for path in paths:
+        if path.exists():
+            try:
+                path.unlink()
+            except OSError:
+                pass
 
-def build_index(progress: bool = True) -> None:
-    """
-    Build or refresh the local SQLite and embedding index artifacts.
-    
-    Args:
-        progress(bool): Whether to display progress bars for indexing and embedding operations. Defaults to True.
-    """
+
+def build_index(progress: bool = True, force: bool = False) -> None:
     config.ensure_data_dirs()
-    schema.initialize()
+
+    if force:
+        _clear_index_data()
+
+    schema.initialize_database()
+
+    embedding_provider, embedding_provider_config = detect_embedding_provider()
 
     tools = _discover_tools()
     if not tools:
-        raise RuntimeError("No man pages discovered from man -k")
+        raise RuntimeError("No installed tools discovered via man -k")
 
     with schema.get_connection() as conn:
         meta = config.read_index_meta() or {}
 
         existing = {
-            row["name"] for row in conn.execute("SELECT name FROM tools").fetchall()
+            (row["name"], row["section"]) for row in conn.execute("SELECT name, section FROM tools").fetchall()
         }
 
         existing_version = str(meta.get("sempropos_version") or "")
-        if existing and existing_version and existing_version != __version__:
+        
+        # Hard check for version shifts or missing metadata to trigger full rebuilds
+        if existing and (not existing_version or existing_version != __version__):
             raise RuntimeError(
                 config.VERSION_UPDATE_NOTICE_TEMPLATE.format(version=__version__)
             )
 
-        pending = [row for row in tools if row[0] not in existing]
+        pending = [row for row in tools if (row[0], row[1]) not in existing]
 
         pbar = None
         if progress:
             pbar = tqdm(total=len(pending), desc="Indexing", unit="tool")
 
-        with ThreadPoolExecutor(max_workers=4) as pool:
+        workers = os.cpu_count() or 4
+        with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = {
-                pool.submit(_read_man_page, name): (name, section, description)
+                pool.submit(_read_man_page, name, section): (name, section, description)
                 for name, section, description in pending
             }
 
@@ -310,9 +275,8 @@ def build_index(progress: bool = True) -> None:
                     parsed = parser.parse_man_page(raw_page)
                     _insert_tool(conn, name, section, description, parsed)
                     conn.commit()
-                except Exception as exc:  # noqa: BLE001
+                except Exception:  # noqa: BLE001
                     conn.rollback()
-                    LOGGER.warning("Skipping %s: %s", name, exc)
                 finally:
                     if pbar is not None:
                         pbar.update(1)
@@ -322,8 +286,13 @@ def build_index(progress: bool = True) -> None:
 
         embedding_dim = _rebuild_embeddings(conn, progress=progress)
 
-    config.last_indexed_path().write_text(
+    atomic_write_text(
+        config.last_indexed_path(),
         datetime.now(tz=timezone.utc).isoformat(),
-        encoding="utf-8",
     )
-    config.write_index_meta(embedding_dim=embedding_dim)
+    
+    config.write_index_meta(
+        embedding_dim=embedding_dim,
+        embedding_model=(embedding_provider_config.model if embedding_provider_config else None) or "",
+        embedding_provider=(embedding_provider if embedding_provider else None) or "",
+    )

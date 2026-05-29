@@ -1,4 +1,4 @@
-PYTHON ?= python
+sPYTHON ?= python
 PIP ?= $(PYTHON) -m pip
 
 .PHONY : clean help install-dev test test-offline coverage format lint
@@ -15,6 +15,7 @@ clean:
 	find . -name "*.pyc" -delete
 	find . -name "*.pyo" -delete
 	find . -name ".DS_Store" -delete
+	find . -name "*.egg-info" -type d -exec rm -rf {} +
 
 test:
 	@echo "Running full test suite with coverage gate..."

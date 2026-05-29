@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 def reciprocal_rank_fusion(
     results: list[list[tuple[int, float]]],
     k: int = 60,

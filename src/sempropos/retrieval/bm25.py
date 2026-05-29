@@ -4,47 +4,36 @@ from __future__ import annotations
 
 import re
 
-from rank_bm25 import BM25Okapi
-
-from sempropos.index import schema
-
-# Cached BM25 state for tool description retrieval
-_BM25: BM25Okapi | None = None
-_TOOL_IDS: list[int] = []
+from sempropos.index import get_connection
 
 
-def _tokenize(text: str) -> list[str]:
-    """Lowercase and tokenize free text into BM25 terms."""
-    return re.findall(r"[a-z0-9]+", text.lower())
+def _sanitize_and_build_query(tokens: list[str]) -> str:
+    """
+    Sanitize query tokens and build an FTS5 query string.
+
+    Args:
+        tokens(list[str]): A list of raw query tokens.
+
+    Returns:
+        A sanitized FTS5 query string that can be used in a MATCH clause.
+    """
+    sanitized_tokens = []
+    for token in tokens:
+        # Remove special characters that could interfere with FTS5 syntax
+        sanitized = re.sub(r"[^\w]+", "", token)
+        if sanitized:
+            sanitized_tokens.append(sanitized)
+    # Combine tokens with OR for broader matching in FTS5
+    return " OR ".join(sanitized_tokens)
 
 
-def _build_index() -> None:
-    """Load tool descriptions from SQLite and build in-memory BM25 state."""
-    global _BM25, _TOOL_IDS
-
-    with schema.get_connection() as conn:
-        rows = conn.execute("SELECT id, description FROM tools ORDER BY id").fetchall()
-
-    _TOOL_IDS = [int(row["id"]) for row in rows]
-    corpus = [_tokenize(row["description"]) for row in rows]
-
-    if not corpus:
-        _BM25 = None
-        return
-
-    _BM25 = BM25Okapi(corpus)
-
-
-def _ensure_index() -> None:
-    """Initialize BM25 state lazily on first retrieval call."""
-    if _BM25 is None and not _TOOL_IDS:
-        _build_index()
-
-
-def search(query_tokens: list[str], top_k: int = 10) -> list[tuple[int, float]]:
+# TODO: Consider merging expansion and BM25 Modules. Consider directly passing user query to BM25 and it handles query expansion internally.
+def query_bm25_ranking(
+    query_tokens: list[str], top_k: int = 10
+) -> list[tuple[int, float]]:
     """
     Return top-k BM25 matches for the query token set.
-    
+
     Args:
         query_tokens(list[str]): A list of token strings representing the user query, which should be preprocessed (e.g., lowercased and tokenized) before being passed to this function.
         top_k(int): The number of top matches to return.
@@ -55,21 +44,26 @@ def search(query_tokens: list[str], top_k: int = 10) -> list[tuple[int, float]]:
     if top_k <= 0:
         return []
 
-    _ensure_index()
-    if _BM25 is None or not _TOOL_IDS:
+    # Build the FTS5 query string from the input tokens
+    query_string = _sanitize_and_build_query(query_tokens)
+    if not query_string:
         return []
 
-    scores = _BM25.get_scores(query_tokens)
-    ranked = sorted(
-        zip(_TOOL_IDS, scores),
-        key=lambda item: item[1],
-        reverse=True,
-    )
-    return [(tool_id, float(score)) for tool_id, score in ranked[:top_k]]
+    # Execute the BM25 query against the FTS5 index
+    sqlquery = """
+        SELECT rowid, rank
+        FROM tools_fts
+        WHERE tools_fts MATCH ?
+        ORDER BY rank
+        LIMIT ? 
+    """
 
+    result = []
+    with get_connection() as conn:
+        rows = conn.execute(sqlquery, (query_string, top_k)).fetchall()
+        for row in rows:
+            tool_id = int(row["rowid"])
+            score = -float(row["rank"])
+            result.append((tool_id, score))
 
-def _reset_cache() -> None:
-    """Reset cached BM25 state for tests or reinitialization."""
-    global _BM25, _TOOL_IDS
-    _BM25 = None
-    _TOOL_IDS = []
+    return result

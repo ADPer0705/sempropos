@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import re
 
-
-SYNONYMS: dict[str, list[str]] = {
+# Base mapping
+_BASE_SYNONYMS: dict[str, list[str]] = {
     "see": ["list", "view", "show", "display", "print", "read"],
     "files": ["contents", "entries", "members", "paths"],
     "archive": ["compress", "extract", "zip", "tar", "gz", "7z", "bz2", "xz"],
@@ -26,14 +26,29 @@ SYNONYMS: dict[str, list[str]] = {
     "encrypt": ["decrypt", "cipher", "gpg", "ssl", "tls", "hash", "sign"],
 }
 
+def _build_symmetric_network() -> dict[str, list[str]]:
+    """Dynamically build a bi-directional synonym lookup network."""
+    network: dict[str, set[str]] = {}
+    for base, syns in _BASE_SYNONYMS.items():
+        if base not in network:
+            network[base] = set()
+        network[base].update(syns)
+        for syn in syns:
+            if syn not in network:
+                network[syn] = set()
+            network[syn].add(base)
+            network[syn].update(s for s in syns if s != syn)
+    return {k: list(v) for k, v in network.items()}
+
+# Computed once when the module loads
+SYNONYMS = _build_symmetric_network()
 
 def _tokenize(text: str) -> list[str]:
     """Lowercase and tokenize a user query into alphanumeric terms."""
     return re.findall(r"[a-z0-9]+", text.lower())
 
-
-def expand(query: str) -> list[str]:
-    """Tokenize query and add static synonym expansions."""
+def expand_query(query: str) -> list[str]:
+    """Tokenize query and add symmetric synonym expansions."""
     ordered: list[str] = []
     seen: set[str] = set()
 
