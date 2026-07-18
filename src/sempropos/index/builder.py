@@ -1,7 +1,15 @@
-"""Install-time indexing pipeline."""
+"""Install-time indexing pipeline.
+
+Memory-efficient design:
+  - Generator-based man page processing with bounded thread concurrency
+  - Batch DB inserts with periodic commits
+  - Incremental embedding with per-batch disk flushes
+  - Explicit model unloading and garbage collection
+"""
 
 from __future__ import annotations
 
+import gc
 import os
 import re
 import shutil
@@ -10,6 +18,7 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Generator
 
 import numpy as np
 from tqdm import tqdm
@@ -20,6 +29,16 @@ from sempropos.intelligence.facade import embed_texts, detect_embedding_provider
 from sempropos.utils import atomic_write_text
 
 MAN_K_PATTERN = re.compile(r"^([^\s,]+)(?:,\s*[^\s,]+)*\s+\(([^)]+)\)\s+-\s+(.*)$")
+
+# --- Pipeline tuning knobs ---
+# How many man page subprocesses to run concurrently
+_MAN_READ_WORKERS = min(os.cpu_count() or 4, 8)
+# How many parsed tools to accumulate before committing to DB
+_DB_COMMIT_BATCH = 50
+# How many text descriptions to embed in one model call
+_EMBED_BATCH = 16
+# How many DB rows to read at a time during the embedding phase
+_EMBED_CURSOR_CHUNK = 256
 
 
 def _run_man_k(section: str) -> list[tuple[str, int, str]]:
@@ -90,6 +109,54 @@ def _read_man_page(tool: str, section: int) -> str:
     return result.stdout
 
 
+# ============================================================================
+# Generator-based man page processing
+# ============================================================================
+
+
+def _iter_parsed_tools(
+    pending: list[tuple[str, int, str]],
+    progress: bool,
+) -> Generator[tuple[str, int, str, parser.ParsedManPage], None, None]:
+    """Yield (name, section, description, parsed) with bounded concurrency.
+
+    Only `_MAN_READ_WORKERS` raw man page strings exist in memory at a time.
+    Each is parsed and yielded immediately, then garbage-collected.
+    """
+    pbar = None
+    if progress:
+        pbar = tqdm(total=len(pending), desc="Indexing", unit="tool")
+
+    with ThreadPoolExecutor(max_workers=_MAN_READ_WORKERS) as pool:
+        futures = {
+            pool.submit(_read_man_page, name, section): (name, section, description)
+            for name, section, description in pending
+        }
+
+        for future in as_completed(futures):
+            name, section, description = futures[future]
+            if pbar is not None:
+                pbar.set_postfix_str(name)
+
+            try:
+                raw_page = future.result()
+                parsed = parser.parse_man_page(raw_page)
+                yield name, section, description, parsed
+            except Exception:  # noqa: BLE001
+                pass  # skip tools whose man pages can't be read/parsed
+            finally:
+                if pbar is not None:
+                    pbar.update(1)
+
+    if pbar is not None:
+        pbar.close()
+
+
+# ============================================================================
+# Batch DB insertion
+# ============================================================================
+
+
 def _insert_tool(
     conn,
     name: str,
@@ -132,29 +199,34 @@ def _insert_tool(
         )
 
 
-def _embed_texts(texts: list[str], progress: bool) -> np.ndarray:
-    if not texts:
-        return np.empty((0, 0), dtype=np.float32)
+def _ingest_tools(
+    conn,
+    pending: list[tuple[str, int, str]],
+    progress: bool,
+) -> None:
+    """Parse man pages via generator and batch-commit to DB."""
+    batch_count = 0
 
-    all_batches: list[np.ndarray] = []
-    
-    BATCH_SIZE = 32
-    iterator = range(0, len(texts), BATCH_SIZE)
-    
-    if progress:
-        iterator = tqdm(iterator, desc="Embedding", unit="batch")
+    for name, section, description, parsed in _iter_parsed_tools(pending, progress):
+        try:
+            _insert_tool(conn, name, section, description, parsed)
+            batch_count += 1
+        except Exception:  # noqa: BLE001
+            conn.rollback()
+            continue
 
-    for start in iterator:
-        batch = texts[start : start + BATCH_SIZE]
-        safe_batch = [text[:2500] for text in batch]
+        if batch_count >= _DB_COMMIT_BATCH:
+            conn.commit()
+            batch_count = 0
 
-        encoded = embed_texts(safe_batch)  # Calls the facade
-        all_batches.append(encoded)
+    # Commit any remaining partial batch
+    if batch_count > 0:
+        conn.commit()
 
-    vectors = (
-        np.vstack(all_batches) if all_batches else np.empty((0, 0), dtype=np.float32)
-    )
-    return vectors.astype(np.float32)
+
+# ============================================================================
+# Incremental embedding
+# ============================================================================
 
 
 def _atomic_save_npy(path: Path, values: np.ndarray) -> None:
@@ -180,30 +252,177 @@ def _atomic_save_npy(path: Path, values: np.ndarray) -> None:
             temp_path.unlink(missing_ok=True)
 
 
-def _rebuild_embeddings(conn, progress: bool) -> int:
-    tool_rows = conn.execute("SELECT id, description FROM tools ORDER BY id").fetchall()
-    flag_rows = conn.execute("SELECT id, description FROM flags ORDER BY id").fetchall()
+def _embed_batch(texts: list[str]) -> np.ndarray:
+    """Embed a single batch of texts (already capped to _EMBED_BATCH size)."""
+    if not texts:
+        return np.empty((0, 0), dtype=np.float32)
 
-    tool_texts = [row["description"] for row in tool_rows]
-    flag_texts = [row["description"] for row in flag_rows]
+    safe_batch = [text[:2500] for text in texts]
+    return embed_texts(safe_batch)  # provider already returns float32
 
-    tool_vectors = _embed_texts(tool_texts, progress=progress)
-    flag_vectors = _embed_texts(flag_texts, progress=progress)
-    flag_ids = np.array([row["id"] for row in flag_rows], dtype=np.int32)
 
+def _stream_embed_to_disk(
+    conn,
+    dest_path: Path,
+    sql: str,
+    text_col: str,
+    total: int,
+    progress_label: str,
+    progress: bool,
+) -> tuple[int, np.ndarray | None]:
+    """Stream rows from *sql*, embed in batches, write result to *dest_path*.
+
+    Returns (embedding_dim, ids_array_or_None).
+    The ids_array is only returned when the SQL selects an ``id`` column
+    (used for flag embeddings).
+
+    The key property is that only one cursor-chunk worth of vectors exists
+    in RAM at any time — as soon as all chunks are gathered they are
+    concatenated, saved to disk, and freed.
+    """
+    chunks: list[np.ndarray] = []
+    id_chunks: list[np.ndarray] = []
+    has_ids = False
     embedding_dim = 0
-    if tool_vectors.ndim == 2 and tool_vectors.shape[1] > 0:
-        embedding_dim = int(tool_vectors.shape[1])
-    elif flag_vectors.ndim == 2 and flag_vectors.shape[1] > 0:
-        embedding_dim = int(flag_vectors.shape[1])
 
+    pbar = tqdm(total=total, desc=progress_label, unit="text") if progress else None
+
+    offset = 0
+    while True:
+        rows = conn.execute(sql, (_EMBED_CURSOR_CHUNK, offset)).fetchall()
+        if not rows:
+            break
+
+        texts = [row[text_col] for row in rows]
+
+        # Detect if the query includes an 'id' column (flag embeddings)
+        if offset == 0:
+            has_ids = "id" in rows[0].keys()
+
+        if has_ids:
+            ids = np.array([row["id"] for row in rows], dtype=np.int32)
+
+        for i in range(0, len(texts), _EMBED_BATCH):
+            batch = texts[i : i + _EMBED_BATCH]
+            vectors = _embed_batch(batch)
+            if vectors.size > 0:
+                chunks.append(vectors)
+                if has_ids:
+                    id_chunks.append(ids[i : i + len(batch)])
+                if embedding_dim == 0 and vectors.ndim == 2:
+                    embedding_dim = vectors.shape[1]
+            del vectors
+            if pbar is not None:
+                pbar.update(len(batch))
+
+        offset += _EMBED_CURSOR_CHUNK
+        del rows, texts
+        gc.collect()
+
+    if pbar is not None:
+        pbar.close()
+
+    # ---- Concatenate and flush to disk immediately ----
+    merged = np.vstack(chunks) if chunks else np.empty((0, 0), dtype=np.float32)
+    del chunks
+    gc.collect()
+
+    _atomic_save_npy(dest_path, merged)
+    del merged
+    gc.collect()
+
+    merged_ids: np.ndarray | None = None
+    if has_ids and id_chunks:
+        merged_ids = np.concatenate(id_chunks)
+        del id_chunks
+        gc.collect()
+
+    return embedding_dim, merged_ids
+
+
+def _rebuild_embeddings_incremental(conn, progress: bool) -> int:
+    """Build tool and flag embeddings with minimal peak memory.
+
+    Each embedding type is computed, written to disk, and freed BEFORE
+    the next type starts.  This means peak memory is roughly:
+        ONNX model  +  one type's accumulated vectors
+
+    instead of the old approach where ALL vectors lived in RAM
+    simultaneously.
+    """
+    embedding_dim = 0
+
+    # ---- Phase A: Tool embeddings → disk ----
+    total_tools = conn.execute("SELECT COUNT(*) FROM tools").fetchone()[0]
+    if total_tools > 0:
+        dim, _ = _stream_embed_to_disk(
+            conn,
+            dest_path=config.tool_embeddings_path(),
+            sql="SELECT description FROM tools ORDER BY id LIMIT ? OFFSET ?",
+            text_col="description",
+            total=total_tools,
+            progress_label="Embedding tools",
+            progress=progress,
+        )
+        if dim > 0:
+            embedding_dim = dim
+    else:
+        _atomic_save_npy(
+            config.tool_embeddings_path(), np.empty((0, 0), dtype=np.float32)
+        )
+
+    # ---- Phase B: Flag embeddings → disk ----
+    total_flags = conn.execute("SELECT COUNT(*) FROM flags").fetchone()[0]
+    if total_flags > 0:
+        dim, flag_ids = _stream_embed_to_disk(
+            conn,
+            dest_path=config.flag_embeddings_path(),
+            sql="SELECT id, description FROM flags ORDER BY id LIMIT ? OFFSET ?",
+            text_col="description",
+            total=total_flags,
+            progress_label="Embedding flags",
+            progress=progress,
+        )
+        if dim > 0 and embedding_dim == 0:
+            embedding_dim = dim
+
+        if flag_ids is not None:
+            _atomic_save_npy(config.flag_embedding_ids_path(), flag_ids)
+            del flag_ids
+            gc.collect()
+        else:
+            _atomic_save_npy(
+                config.flag_embedding_ids_path(), np.empty(0, dtype=np.int32)
+            )
+    else:
+        _atomic_save_npy(
+            config.flag_embeddings_path(), np.empty((0, 0), dtype=np.float32)
+        )
+        _atomic_save_npy(
+            config.flag_embedding_ids_path(), np.empty(0, dtype=np.int32)
+        )
+
+    # ---- Validate ----
     if embedding_dim <= 0:
         raise RuntimeError("Unable to determine embedding dimension from indexed data.")
 
-    _atomic_save_npy(config.tool_embeddings_path(), tool_vectors)
-    _atomic_save_npy(config.flag_embeddings_path(), flag_vectors)
-    _atomic_save_npy(config.flag_embedding_ids_path(), flag_ids)
     return embedding_dim
+
+
+def _unload_embedding_model() -> None:
+    """Release the cached embedding model to free memory."""
+    try:
+        from sempropos.intelligence.providers import _fastembed as fe
+        fe.unload_model()
+    except Exception:  # noqa: BLE001
+        pass
+    gc.collect()
+
+
+# ============================================================================
+# Index cleanup
+# ============================================================================
+
 
 def _clear_index_data() -> None:
     """Wipe existing database and embedding files for a clean rebuild."""
@@ -221,6 +440,11 @@ def _clear_index_data() -> None:
                 path.unlink()
             except OSError:
                 pass
+
+
+# ============================================================================
+# Main entry point
+# ============================================================================
 
 
 def build_index(progress: bool = True, force: bool = False) -> None:
@@ -254,37 +478,14 @@ def build_index(progress: bool = True, force: bool = False) -> None:
 
         pending = [row for row in tools if (row[0], row[1]) not in existing]
 
-        pbar = None
-        if progress:
-            pbar = tqdm(total=len(pending), desc="Indexing", unit="tool")
+        # Phase 1: Parse man pages and insert into DB (generator + batch commits)
+        _ingest_tools(conn, pending, progress)
 
-        workers = os.cpu_count() or 4
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = {
-                pool.submit(_read_man_page, name, section): (name, section, description)
-                for name, section, description in pending
-            }
+        # Phase 2: Build embeddings incrementally (cursor-based streaming)
+        embedding_dim = _rebuild_embeddings_incremental(conn, progress=progress)
 
-            for future in as_completed(futures):
-                name, section, description = futures[future]
-                if pbar is not None:
-                    pbar.set_postfix_str(name)
-
-                try:
-                    raw_page = future.result()
-                    parsed = parser.parse_man_page(raw_page)
-                    _insert_tool(conn, name, section, description, parsed)
-                    conn.commit()
-                except Exception:  # noqa: BLE001
-                    conn.rollback()
-                finally:
-                    if pbar is not None:
-                        pbar.update(1)
-
-        if pbar is not None:
-            pbar.close()
-
-        embedding_dim = _rebuild_embeddings(conn, progress=progress)
+    # Phase 3: Cleanup — release the embedding model from memory
+    _unload_embedding_model()
 
     atomic_write_text(
         config.last_indexed_path(),

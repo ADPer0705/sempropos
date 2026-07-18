@@ -45,9 +45,9 @@ By participating in this project, you are expected to uphold general open-source
 ## Development Setup
 
 1. Clone the repository: `git clone https://github.com/ADPer0705/sempropos.git`
-2. Create a virtual environment: `python -m venv .venv`
+2. Create a virtual environment: `uv venv`
 3. Activate the environment: `source .venv/bin/activate` 
-4. Install with development dependencies: `python -m pip install -e ".[dev]"`
+4. Install with development dependencies: `uv sync`
 5. To test retrieval locally, run `sempropos --install` to bootstrap the index.
 
 ### Test Policy
@@ -57,4 +57,3 @@ By participating in this project, you are expected to uphold general open-source
 - Live provider checks (if any) should be opt-in and never required for CI.
 - Standard test runs must not require any API key.
 
-**Note**: The architecture guide in `AGENTS.md` provides detailed context on how the CLI structure is orchestrated.

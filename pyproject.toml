@@ -4,27 +4,58 @@ version = "0.1.0"
 description = "Offline CLI command synthesis from local man pages"
 readme = "README.md"
 requires-python = ">=3.11"
+license = { text = "MIT" }
+keywords = [
+    "cli",
+    "command-synthesis",
+    "llm",
+    "local-ai",
+    "man-pages",
+    "offline",
+    "shell",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: English",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: System :: Shells",
+    "Topic :: Utilities",
+]
 dependencies = [
-	"rank-bm25>=0.2.2",
 	"fastembed>=0.3.0",
 	"numpy>=1.26",
 	"tqdm>=4.0",
-	"requests>=2.31",
-	"psutil>=5.9",
 	"keyring>=25.7.0",
 	"platformdirs>=4.9.6",
 	"tomli-w>=1.2.0",
 	"typer>=0.25.1",
 	"questionary>=2.1.1",
 	"pip>=26.1.1",
+	"rich>=15.0.0",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
-	"ruff>=0.6",
-	"build>=1.2.0",
-	"twine>=5.1.1",
+    "build>=1.5.0",
+    "mypy>=2.3.0",
+    "pre-commit>=4.6.0",
+    "ruff>=0.15.13",
+    "twine>=6.2.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/ADPer0705/sempropos"
+Repository = "https://github.com/ADPer0705/sempropos"
+Issues = "https://github.com/ADPer0705/sempropos/issues"
+Changelog = "https://github.com/ADPer0705/sempropos/releases"
 
 [project.scripts]
 sempropos = "sempropos.cli:main"
@@ -36,6 +67,35 @@ package-dir = {"" = "src"}
 where = ["src"]
 include = ["sempropos*"]
 
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "W",   # pycodestyle warnings
+    "I",   # isort (import sorting)
+    "N",   # pep8-naming
+    "UP",  # pyupgrade (modern syntax)
+    "B",   # bugbear (common bugs)
+    "SIM", # simplify
+    "C90", # complexity
+]
+ignore = ["E501"]  # line length handled by formatter
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
+show_error_codes = true
+enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
+
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
+

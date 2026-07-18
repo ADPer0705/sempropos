@@ -21,12 +21,23 @@ try:
 except ImportError:
     _HAS_FASTEMBED = False
 
-# --- THE FIX: Cache the ONNX runtime in memory ---
+# --- Cache the ONNX runtime in memory (singleton) ---
 _CACHED_MODEL_NAME: str | None = None
 _CACHED_ENGINE = None
 
+# Cap ONNX thread count to limit per-thread inference buffer allocation.
+# Each ONNX thread holds its own copy of intermediate activation tensors,
+# so unlimited threads on multi-core machines balloon memory fast.
+_ONNX_THREADS = min(os.cpu_count() or 2, 4)
+
 def is_available() -> bool:
     return _HAS_FASTEMBED
+
+def unload_model() -> None:
+    """Release the cached ONNX model to free memory."""
+    global _CACHED_MODEL_NAME, _CACHED_ENGINE
+    _CACHED_ENGINE = None
+    _CACHED_MODEL_NAME = None
 
 def get_available_models() -> list[str]:
     return [
@@ -48,9 +59,23 @@ def embed_texts(texts: list[str], model: str | None = None) -> np.ndarray:
         # Singleton pattern: Only load the heavy model into RAM ONCE per process
         if _CACHED_MODEL_NAME != model or _CACHED_ENGINE is None:
             _CACHED_MODEL_NAME = model
-            _CACHED_ENGINE = TextEmbedding(model_name=model)
-            
-        embeddings_list = list(_CACHED_ENGINE.embed(texts))
-        return np.vstack(embeddings_list).astype(np.float32)
+            _CACHED_ENGINE = TextEmbedding(
+                model_name=model,
+                threads=_ONNX_THREADS,
+            )
+
+        # embed() returns a generator — consume it directly into a
+        # pre-allocated array to avoid the intermediate Python list and
+        # the extra copies from vstack + astype.
+        gen = _CACHED_ENGINE.embed(texts)
+        first = next(gen)
+        dim = first.shape[0]
+
+        out = np.empty((len(texts), dim), dtype=np.float32)
+        out[0] = first
+        for idx, vec in enumerate(gen, start=1):
+            out[idx] = vec
+
+        return out
     except Exception as e:
         raise ProviderExecutionError(f"FastEmbed execution failed: {e}") from e

@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Build Status](https://github.com/ADPer0705/sempropos/actions/workflows/ci.yml/badge.svg)](https://github.com/ADPer0705/sempropos/actions)
 
-`sempropos` is an open-source, local, offline-first CLI tool that turns a natural-language task description into a shell command or pipeline. It does this by retrieving relevant context from your system's local man pages and synthesizing the output using a tiny local LLM.
+`sempropos` is an open-source, local, offline-first CLI tool that turns a natural-language task description into a shell command. It does this by retrieving relevant context from your system's local man pages and synthesizing the output using a tiny local LLM.
 
 Say goodbye to complex web searches just to find the right flag—`sempropos` keeps it entirely on your machine.
 

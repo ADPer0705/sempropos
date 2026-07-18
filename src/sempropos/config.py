@@ -86,16 +86,18 @@ DEFAULT_SYNTHESIS_PROVIDER = "tier0"
 DEFAULT_EMBEDDING_PROVIDER = "fastembed_local"
 
 
-# ===== Provider runtime configuration =====
+# ===== Role-specific provider configuration =====
 @dataclass(frozen=True)
-class ProviderRuntimeConfig:
+class RoleConfig:
     """
-    Provider-specific runtime configuration options.
+    Configuration for a single intelligence role (synthesis or embedding).
 
-    Stores API credentials, connection details, timeout settings, and
-    model specifications for a single provider.
+    Combines the provider name with its runtime settings, eliminating the
+    dict-key collision that occurred when the same provider was used for
+    both synthesis and embedding.
 
     Attributes:
+        provider: Provider backend name (e.g., "ollama", "tier0", "fastembed_local").
         model: Model identifier (e.g., "gpt-4", "gemma4:e2b").
         base_url: API endpoint base URL (e.g., "https://api.openai.com/v1").
         api_key_env: Environment variable name for API key (e.g., "OPENAI_API_KEY").
@@ -104,6 +106,7 @@ class ProviderRuntimeConfig:
         timeout_seconds: Request timeout in seconds.
     """
 
+    provider: str
     model: str | None = None
     base_url: str | None = None
     api_key_env: str | None = None
@@ -117,18 +120,17 @@ class IntelligenceConfig:
     """
     Resolved runtime settings for synthesis and embedding providers.
 
-    Combines selected providers, model choices, and per-provider configuration.
+    Each role (synthesis, embedding) carries its own RoleConfig that
+    combines the provider name with connection and model settings.
     Loaded from TOML and used to initialize the intelligence layer at runtime.
 
     Attributes:
-        synthesis_provider: Selected LLM synthesis provider.
-        embedding_provider: Selected embedding provider.
-        providers: Dict mapping provider name to its runtime config.
+        synthesis: Configuration for the LLM synthesis role.
+        embedding: Configuration for the embedding role.
     """
 
-    synthesis_provider: str = DEFAULT_SYNTHESIS_PROVIDER
-    embedding_provider: str = DEFAULT_EMBEDDING_PROVIDER
-    providers: dict[str, ProviderRuntimeConfig] = field(default_factory=dict)
+    synthesis: RoleConfig = field(default_factory=lambda: RoleConfig(provider=DEFAULT_SYNTHESIS_PROVIDER))
+    embedding: RoleConfig = field(default_factory=lambda: RoleConfig(provider=DEFAULT_EMBEDDING_PROVIDER))
 
 
 # ============================================================================
@@ -252,7 +254,7 @@ def read_validated_index_meta() -> tuple[str, int, str]:
         raise RuntimeError(VERSION_UPDATE_NOTICE_TEMPLATE.format(version=__version__))
 
     settings = load_intelligence_config()
-    if settings.embedding_provider != embedding_provider:
+    if settings.embedding.provider != embedding_provider:
         raise RuntimeError(MISMATCH_UPDATE_NOTICE)
 
     return model_name, dim_value, embedding_provider
@@ -273,6 +275,42 @@ def normalize_provider_name(
     return lowered if lowered in supported else None
 
 
+def _parse_role_block(block: dict, supported: tuple[str, ...], default_provider: str) -> RoleConfig:
+    """Parse a TOML role section into a RoleConfig, with validation and defaults."""
+    provider = normalize_provider_name(block.get("provider"), supported) or default_provider
+
+    return RoleConfig(
+        provider=provider,
+        model=(block.get("model") if isinstance(block.get("model"), str) else None),
+        base_url=(
+            block.get("base_url")
+            if isinstance(block.get("base_url"), str)
+            else None
+        ),
+        api_key_env=(
+            block.get("api_key_env")
+            if isinstance(block.get("api_key_env"), str)
+            else None
+        ),
+        api_key_secret=(
+            block.get("api_key_secret")
+            if isinstance(block.get("api_key_secret"), str)
+            else None
+        ),
+        api_key_plaintext=(
+            block.get("api_key_plaintext")
+            if isinstance(block.get("api_key_plaintext"), str)
+            else None
+        ),
+        timeout_seconds=(
+            float(block.get("timeout_seconds"))
+            if "timeout_seconds" in block
+            and isinstance(block.get("timeout_seconds"), (int, float))
+            else 30.0
+        ),
+    )
+
+
 def load_intelligence_config() -> IntelligenceConfig:
     """Load intelligence settings from TOML config file."""
     try:
@@ -282,61 +320,17 @@ def load_intelligence_config() -> IntelligenceConfig:
     except (OSError, tomllib.TOMLDecodeError):
         intelligence_config = {}
 
-    synthesis_provider = normalize_provider_name(
-        intelligence_config.get("synthesis_provider"), SUPPORTED_SYNTHESIS_PROVIDERS
-    )
-    embedding_provider = normalize_provider_name(
-        intelligence_config.get("embedding_provider"), SUPPORTED_EMBEDDING_PROVIDERS
-    )
+    synth_block = intelligence_config.get("synthesis", {})
+    if not isinstance(synth_block, dict):
+        synth_block = {}
 
-    if not synthesis_provider:
-        synthesis_provider = DEFAULT_SYNTHESIS_PROVIDER
-    if not embedding_provider:  
-        embedding_provider = DEFAULT_EMBEDDING_PROVIDER
-
-    raw_providers = intelligence_config.get("providers", {})
-    providers = {}
-
-    for name, block in raw_providers.items():
-        if not isinstance(name, str) or name not in SUPPORTED_PROVIDERS:
-            continue
-        if not isinstance(block, dict):
-            block = {}
-
-        providers[name] = ProviderRuntimeConfig(
-            model=(block.get("model") if isinstance(block.get("model"), str) else None),
-            base_url=(
-                block.get("base_url")
-                if isinstance(block.get("base_url"), str)
-                else None
-            ),
-            api_key_env=(
-                block.get("api_key_env")
-                if isinstance(block.get("api_key_env"), str)
-                else None
-            ),
-            api_key_secret=(
-                block.get("api_key_secret")
-                if isinstance(block.get("api_key_secret"), str)
-                else None
-            ),
-            api_key_plaintext=(
-                block.get("api_key_plaintext")
-                if isinstance(block.get("api_key_plaintext"), str)
-                else None
-            ),
-            timeout_seconds=(
-                float(block.get("timeout_seconds"))
-                if "timeout_seconds" in block
-                and isinstance(block.get("timeout_seconds"), (int, float))
-                else 30.0
-            ),
-        )
+    embed_block = intelligence_config.get("embedding", {})
+    if not isinstance(embed_block, dict):
+        embed_block = {}
 
     return IntelligenceConfig(
-        synthesis_provider=synthesis_provider,
-        embedding_provider=embedding_provider,
-        providers=providers,
+        synthesis=_parse_role_block(synth_block, SUPPORTED_SYNTHESIS_PROVIDERS, DEFAULT_SYNTHESIS_PROVIDER),
+        embedding=_parse_role_block(embed_block, SUPPORTED_EMBEDDING_PROVIDERS, DEFAULT_EMBEDDING_PROVIDER),
     )
 
 
@@ -350,6 +344,6 @@ def save_intelligence_config(settings: IntelligenceConfig) -> Path:
 
     clean_dict = asdict(settings, dict_factory=strip_none)
     toml_string = tomli_w.dumps(clean_dict)
-    
+
     atomic_write_text(path, toml_string)
     return path

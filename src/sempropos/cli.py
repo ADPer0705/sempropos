@@ -17,7 +17,7 @@ from sempropos.config import (
     SUPPORTED_SYNTHESIS_PROVIDERS,
     SUPPORTED_EMBEDDING_PROVIDERS,
     IntelligenceConfig,
-    ProviderRuntimeConfig,
+    RoleConfig,
     intelligence_config_path,
     load_intelligence_config,
     save_intelligence_config,
@@ -204,12 +204,8 @@ def configure_mode() -> None:
         raise typer.Exit(1)
 
     new_config = IntelligenceConfig(
-        synthesis_provider=synth_choice,
-        embedding_provider=embed_choice,
-        providers={
-            synth_choice: ProviderRuntimeConfig(model=synth_model_choice),
-            embed_choice: ProviderRuntimeConfig(model=embed_model_choice),
-        },
+        synthesis=RoleConfig(provider=synth_choice, model=synth_model_choice),
+        embedding=RoleConfig(provider=embed_choice, model=embed_model_choice),
     )
     save_intelligence_config(new_config)
     console.print("\n[bold green]Configuration saved successfully![/bold green]")
@@ -413,8 +409,8 @@ def cli_core(
     if show_config:
         settings = load_intelligence_config()
         console.print(f"[cyan]Config path:[/cyan] {intelligence_config_path()}")
-        console.print(f"[cyan]Synthesis provider:[/cyan] {settings.synthesis_provider}")
-        console.print(f"[cyan]Embedding provider:[/cyan] {settings.embedding_provider}")
+        console.print(f"[cyan]Synthesis provider:[/cyan] {settings.synthesis.provider}")
+        console.print(f"[cyan]Embedding provider:[/cyan] {settings.embedding.provider}")
         raise typer.Exit(0)
     if install or update:
         action = "install" if install else "update"

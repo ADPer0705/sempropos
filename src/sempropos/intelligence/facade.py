@@ -7,7 +7,7 @@ from sempropos.config import (
     SUPPORTED_SYNTHESIS_PROVIDERS, 
     load_intelligence_config
 )
-from sempropos.config import ProviderRuntimeConfig
+from sempropos.config import RoleConfig
 from sempropos.intelligence.contracts import StructuredPrompt, SynthesisResult
 
 # ----- Errors -----
@@ -53,46 +53,46 @@ def list_embedding_providers() -> dict[str, bool]:
 
     return {p : providers_status.get(p) for p in SUPPORTED_EMBEDDING_PROVIDERS}
 
-def detect_synthesis_provider() -> tuple[str, ProviderRuntimeConfig | None]:
+def detect_synthesis_provider() -> tuple[str, RoleConfig]:
     """
     Determine the active synthesis backend and retrieve its configuration.
 
     Returns:
-        tuple: (provider_name, provider_config)
+        tuple: (provider_name, role_config)
     
     Raises:
         ProviderUnavailableError: If the configured provider is offline.
     """
     intelligence_config = load_intelligence_config()
-    configured_provider = intelligence_config.synthesis_provider
-    provider_config = intelligence_config.providers.get(configured_provider)
+    role_config = intelligence_config.synthesis
+    configured_provider = role_config.provider
 
     if configured_provider == "ollama" and ollama_provider.is_available():
-        return "ollama", provider_config
+        return "ollama", role_config
     elif configured_provider == "tier0" and tier0_provider.is_available():
-        return "tier0", provider_config
+        return "tier0", role_config
     else:
         raise ProviderUnavailableError(f"Configured synthesis provider '{configured_provider}' is not available.")
     
 
-def detect_embedding_provider() -> tuple[str, ProviderRuntimeConfig | None]:
+def detect_embedding_provider() -> tuple[str, RoleConfig]:
     """
     Determine the active embedding backend and retrieve its configuration.
 
     Returns:
-        tuple: (provider_name, provider_config)
+        tuple: (provider_name, role_config)
     
     Raises:
         ProviderUnavailableError: If the configured provider is offline.
     """
     intelligence_config = load_intelligence_config()
-    configured_provider = intelligence_config.embedding_provider
-    provider_config = intelligence_config.providers.get(configured_provider)
+    role_config = intelligence_config.embedding
+    configured_provider = role_config.provider
 
     if configured_provider == "fastembed_local" and fastembed_provider.is_available():
-        return "fastembed_local", provider_config
+        return "fastembed_local", role_config
     elif configured_provider == "ollama" and ollama_provider.is_available():
-        return "ollama", provider_config
+        return "ollama", role_config
     else:
         raise ProviderUnavailableError(f"Configured embedding provider '{configured_provider}' is not available.")
 
@@ -119,13 +119,14 @@ def embed_texts(
     if backend:
         configured_provider = backend
         config_file = load_intelligence_config()
-        provider_config = config_file.providers.get(configured_provider)
+        # Use the embedding role config; the backend override just selects which provider to dispatch to
+        role_config = config_file.embedding
     else:
-        configured_provider, provider_config = detect_embedding_provider()
+        configured_provider, role_config = detect_embedding_provider()
 
     actual_model = model
     if not actual_model:
-        actual_model = provider_config.model if provider_config else None
+        actual_model = role_config.model if role_config else None
 
     match configured_provider:
         case "fastembed_local":
@@ -159,16 +160,17 @@ def synthesize(
     if backend:
         configured_provider = backend
         config_file = load_intelligence_config()
-        provider_config = config_file.providers.get(configured_provider)
+        # Use the synthesis role config; the backend override just selects which provider to dispatch to
+        role_config = config_file.synthesis
     else:
-        configured_provider, provider_config = detect_synthesis_provider()
+        configured_provider, role_config = detect_synthesis_provider()
 
     if configured_provider not in SUPPORTED_SYNTHESIS_PROVIDERS:
         raise ProviderUnavailableError(f"Configured synthesis provider '{backend}' is not available.")
 
     actual_model = model
     if not actual_model:
-        actual_model = provider_config.model if provider_config else None
+        actual_model = role_config.model if role_config else None
 
     match configured_provider:
         case "ollama":
