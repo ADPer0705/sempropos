@@ -8,6 +8,7 @@ import re
 import subprocess
 from typing import TypedDict
 
+
 class ParsedFlag(TypedDict):
     flag: str
     long_flag: str | None
@@ -82,11 +83,29 @@ def _is_stub_page(text: str) -> bool:
     return line_count < 30 and not has_synopsis and not has_options
 
 def _extract_options_block(sections: dict[str, str]) -> str:
-    for key in sections:
+    """Collect flag-definition sections, including predicate-style ones.
+
+    Most tools describe flags under ``OPTIONS``/``FLAGS``. Some (notably
+    ``find``) put essential predicates under ``EXPRESSIONS``/``PREDICATES``;
+    those are merged in so flags such as ``-size`` are not lost.
+    """
+    blocks: list[str] = []
+    for key, value in sections.items():
         normalized = key.upper()
-        if "OPTION" in normalized or normalized in ("FLAGS", "FLAG"):
-            return sections[key]
-    return ""
+        is_options = (
+            "OPTION" in normalized
+            or normalized in ("FLAGS", "FLAG", "SWITCHES", "SWITCH")
+            or normalized.startswith("EXPRESSION")
+            or "PREDICATE" in normalized
+        )
+        if is_options:
+            blocks.append(value)
+    return "\n".join(blocks)
+
+
+# Cap stored flag descriptions so a mis-parsed paragraph cannot balloon the DB.
+_MAX_DESCRIPTION = 400
+
 
 def _parse_flags(options_block: str) -> list[ParsedFlag]:
     if not options_block.strip():
@@ -113,16 +132,21 @@ def _parse_flags(options_block: str) -> list[ParsedFlag]:
                     long_flag=long if (short and long) else None,
                     takes_value=bool(value_hint),
                     value_hint=value_hint,
-                    description=(description or "").strip(),
+                    description=(description or "").strip()[:_MAX_DESCRIPTION],
                 )
             )
             continue
 
         if flags:
-            # continuation line: append to previous flag's description
-            flags[-1]["description"] = f"{flags[-1]['description']} {line.strip()}".strip()
+            # Continuation line: append to the previous flag's description, but
+            # stop growing once the cap is reached.
+            existing = flags[-1]["description"]
+            if len(existing) < _MAX_DESCRIPTION:
+                flags[-1]["description"] = (
+                    f"{existing} {line.strip()}"[:_MAX_DESCRIPTION]
+                ).strip()
             continue
-        
+
         # Ignored pre-flag paragraph text (doesn't break the loop anymore)
         continue
 
@@ -133,7 +157,7 @@ def _parse_flags(options_block: str) -> list[ParsedFlag]:
                 long_flag=None,
                 takes_value=False,
                 value_hint=None,
-                description=options_block.strip(),
+                description=options_block.strip()[:_MAX_DESCRIPTION],
             )
         ]
 

@@ -1,152 +1,103 @@
-"""Install-time indexing pipeline.
+"""Indexing pipeline.
 
-Memory-efficient design:
-  - Generator-based man page processing with bounded thread concurrency
-  - Batch DB inserts with periodic commits
-  - Incremental embedding with per-batch disk flushes
-  - Explicit model unloading and garbage collection
+Design goals:
+  - Bounded memory: never hold more than a small window of man page texts, and
+    stream embeddings to disk batch-by-batch instead of building the whole
+    matrix in RAM.
+  - Incremental updates: only parse and embed rows that are missing.
+  - Crash-atomic metadata: ``index.meta`` is written only after a successful run.
 """
 
 from __future__ import annotations
 
+import contextlib
 import gc
 import os
-import re
-import shutil
-import subprocess
 import tempfile
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from collections.abc import Generator
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Generator
 
 import numpy as np
 from tqdm import tqdm
 
-from sempropos import __version__, config
+from sempropos import config
 from sempropos.index import parser, schema
-from sempropos.intelligence.facade import embed_texts, detect_embedding_provider
+from sempropos.intelligence.facade import detect_embedding_provider, embed_texts
+from sempropos.sources.base import ToolRecord
+from sempropos.sources.man import ManSource
 from sempropos.utils import atomic_write_text
 
-MAN_K_PATTERN = re.compile(r"^([^\s,]+)(?:,\s*[^\s,]+)*\s+\(([^)]+)\)\s+-\s+(.*)$")
-
 # --- Pipeline tuning knobs ---
-# How many man page subprocesses to run concurrently
+# How many man page subprocesses to run concurrently.
 _MAN_READ_WORKERS = min(os.cpu_count() or 4, 8)
-# How many parsed tools to accumulate before committing to DB
+# Cap in-flight futures (results retained in memory) to a small multiple of workers.
+_MAN_INFLIGHT_WINDOW = _MAN_READ_WORKERS * 2
+# How many parsed tools to accumulate before committing to the DB.
 _DB_COMMIT_BATCH = 50
-# How many text descriptions to embed in one model call
-_EMBED_BATCH = 16
-# How many DB rows to read at a time during the embedding phase
-_EMBED_CURSOR_CHUNK = 256
-
-
-def _run_man_k(section: str) -> list[tuple[str, int, str]]:
-    try:
-        result = subprocess.run(
-            ["man", "-k", ".", "-s", section],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-    except OSError as exc:
-        raise RuntimeError("Failed to execute man -k") from exc
-
-    if result.returncode != 0:
-        return []
-
-    rows: list[tuple[str, int, str]] = []
-    for line in result.stdout.splitlines():
-        match = MAN_K_PATTERN.match(line.strip())
-        if not match:
-            continue
-
-        name, section_raw, description = match.groups()
-        section_match = re.search(r"\d+", section_raw)
-        if not section_match:
-            continue
-
-        section_num = int(section_match.group(0))
-        if section_num not in (1, 8):
-            continue
-
-        rows.append((name, section_num, description.strip()))
-
-    return rows
-
-
-def _discover_tools() -> list[tuple[str, int, str]]:
-    combined = _run_man_k("1")
-    try:
-        combined.extend(_run_man_k("8"))
-    except RuntimeError:
-        pass
-
-    seen: set[tuple[str, int]] = set()
-    deduped: list[tuple[str, int, str]] = []
-    
-    for name, section, description in combined:
-        if (name, section) in seen:
-            continue
-        if not shutil.which(name):
-            continue
-        seen.add((name, section))
-        deduped.append((name, section, description))
-
-    return deduped
-
-
-def _read_man_page(tool: str, section: int) -> str:
-    result = subprocess.run(
-        ["man", "-P", "cat", str(section), tool],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        stderr = result.stderr.strip()
-        raise RuntimeError(stderr or f"man page lookup failed for {tool}({section})")
-    return result.stdout
+# How many text descriptions to embed in one model call.
+_EMBED_BATCH = 64
+# How many existing embedding rows to copy to disk at a time when merging.
+_EMBED_COPY_CHUNK = 2048
 
 
 # ============================================================================
-# Generator-based man page processing
+# Bounded, concurrent man page processing
 # ============================================================================
 
 
 def _iter_parsed_tools(
-    pending: list[tuple[str, int, str]],
+    source: ManSource,
+    pending: list[ToolRecord],
     progress: bool,
-) -> Generator[tuple[str, int, str, parser.ParsedManPage], None, None]:
-    """Yield (name, section, description, parsed) with bounded concurrency.
+) -> Generator[tuple[ToolRecord, parser.ParsedManPage], None, None]:
+    """Yield ``(record, parsed)`` with a bounded number of live man page texts.
 
-    Only `_MAN_READ_WORKERS` raw man page strings exist in memory at a time.
-    Each is parsed and yielded immediately, then garbage-collected.
+    Older revisions submitted every tool at once and stored the futures in a
+    dict, which kept every completed man page string alive until the whole run
+    finished. This slides a fixed-size window instead, so peak memory stays
+    proportional to the worker count rather than the tool count.
     """
-    pbar = None
-    if progress:
-        pbar = tqdm(total=len(pending), desc="Indexing", unit="tool")
+    if not pending:
+        return
+
+    pbar = tqdm(total=len(pending), desc="Indexing", unit="tool") if progress else None
+    pending_iter = iter(pending)
+    in_flight: dict[Future, ToolRecord] = {}
 
     with ThreadPoolExecutor(max_workers=_MAN_READ_WORKERS) as pool:
-        futures = {
-            pool.submit(_read_man_page, name, section): (name, section, description)
-            for name, section, description in pending
-        }
 
-        for future in as_completed(futures):
-            name, section, description = futures[future]
-            if pbar is not None:
-                pbar.set_postfix_str(name)
-
+        def submit_next() -> bool:
             try:
-                raw_page = future.result()
-                parsed = parser.parse_man_page(raw_page)
-                yield name, section, description, parsed
-            except Exception:  # noqa: BLE001
-                pass  # skip tools whose man pages can't be read/parsed
-            finally:
+                record = next(pending_iter)
+            except StopIteration:
+                return False
+            in_flight[pool.submit(source.load, record)] = record
+            return True
+
+        for _ in range(_MAN_INFLIGHT_WINDOW):
+            if not submit_next():
+                break
+
+        while in_flight:
+            done, _ = wait(in_flight, return_when=FIRST_COMPLETED)
+            for future in done:
+                record = in_flight.pop(future)
                 if pbar is not None:
-                    pbar.update(1)
+                    pbar.set_postfix_str(record.name)
+                try:
+                    raw_page = future.result()
+                    if raw_page is None:
+                        raise RuntimeError(f"no man page for {record.name}")
+                    parsed = parser.parse_man_page(raw_page)
+                    yield record, parsed
+                except Exception:  # noqa: BLE001 — skip unreadable/unparseable pages
+                    pass
+                finally:
+                    if pbar is not None:
+                        pbar.update(1)
+                submit_next()
 
     if pbar is not None:
         pbar.close()
@@ -157,19 +108,13 @@ def _iter_parsed_tools(
 # ============================================================================
 
 
-def _insert_tool(
-    conn,
-    name: str,
-    section: int,
-    description: str,
-    parsed: parser.ParsedManPage,
-) -> None:
+def _insert_tool(conn, record: ToolRecord, parsed: parser.ParsedManPage) -> None:
     cursor = conn.execute(
         """
         INSERT INTO tools(name, section, description, synopsis)
         VALUES (?, ?, ?, ?)
         """,
-        (name, section, description, parsed.get("synopsis") or None),
+        (record.name, record.section, record.description, parsed.get("synopsis") or None),
     )
     tool_id = int(cursor.lastrowid)
 
@@ -201,15 +146,16 @@ def _insert_tool(
 
 def _ingest_tools(
     conn,
-    pending: list[tuple[str, int, str]],
+    source: ManSource,
+    pending: list[ToolRecord],
     progress: bool,
 ) -> None:
-    """Parse man pages via generator and batch-commit to DB."""
+    """Parse man pages via a bounded generator and batch-commit to the DB."""
     batch_count = 0
 
-    for name, section, description, parsed in _iter_parsed_tools(pending, progress):
+    for record, parsed in _iter_parsed_tools(source, pending, progress):
         try:
-            _insert_tool(conn, name, section, description, parsed)
+            _insert_tool(conn, record, parsed)
             batch_count += 1
         except Exception:  # noqa: BLE001
             conn.rollback()
@@ -219,13 +165,12 @@ def _ingest_tools(
             conn.commit()
             batch_count = 0
 
-    # Commit any remaining partial batch
     if batch_count > 0:
         conn.commit()
 
 
 # ============================================================================
-# Incremental embedding
+# Embedding persistence
 # ============================================================================
 
 
@@ -253,156 +198,247 @@ def _atomic_save_npy(path: Path, values: np.ndarray) -> None:
 
 
 def _embed_batch(texts: list[str]) -> np.ndarray:
-    """Embed a single batch of texts (already capped to _EMBED_BATCH size)."""
+    """Embed a single batch of texts (already capped to ``_EMBED_BATCH`` size)."""
     if not texts:
         return np.empty((0, 0), dtype=np.float32)
 
     safe_batch = [text[:2500] for text in texts]
-    return embed_texts(safe_batch)  # provider already returns float32
+    return embed_texts(safe_batch)
 
 
-def _stream_embed_to_disk(
+def _write_npy_header(handle, total: int, dim: int) -> None:
+    np.lib.format.write_array_header_2_0(
+        handle,
+        {
+            "descr": np.lib.format.dtype_to_descr(np.dtype(np.float32)),
+            "fortran_order": False,
+            "shape": (int(total), int(dim)),
+        },
+    )
+
+
+def _load_embedding_state(
+    emb_path: Path, ids_path: Path
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Load a persisted embedding matrix and its id vector, if aligned."""
+    if not (emb_path.exists() and ids_path.exists()):
+        return None
+
+    try:
+        embeddings = np.load(emb_path, mmap_mode="r")
+        ids = np.load(ids_path)
+    except Exception:  # noqa: BLE001 — corrupt files are treated as absent
+        return None
+
+    if embeddings.ndim != 2 or ids.ndim != 1 or len(ids) != embeddings.shape[0]:
+        return None
+
+    return embeddings, ids
+
+
+def _infer_ids_from_matrix(
+    emb_path: Path, db_ids: np.ndarray
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Recover an id vector for legacy installs that lack ``*_embedding_ids.npy``.
+
+    Older revisions stored tool embeddings without a companion id file and
+    relied on row order matching ``SELECT id ORDER BY id``. This reconstructs
+    that mapping so an update stays incremental instead of re-embedding
+    everything.
+    """
+    if not emb_path.exists():
+        return None
+
+    try:
+        embeddings = np.load(emb_path, mmap_mode="r")
+    except Exception:  # noqa: BLE001
+        return None
+
+    if embeddings.ndim != 2 or embeddings.shape[0] == 0 or embeddings.shape[0] > len(db_ids):
+        return None
+
+    return embeddings, db_ids[: embeddings.shape[0]]
+
+
+def _write_embeddings(
+    *,
+    dest_emb_path: Path,
+    dest_ids_path: Path,
     conn,
-    dest_path: Path,
-    sql: str,
-    text_col: str,
-    total: int,
-    progress_label: str,
+    table: str,
+    existing: tuple[np.ndarray, np.ndarray] | None,
+    new_ids: np.ndarray,
+    label: str,
     progress: bool,
-) -> tuple[int, np.ndarray | None]:
-    """Stream rows from *sql*, embed in batches, write result to *dest_path*.
+) -> int:
+    """Write a complete embedding matrix plus id vector to disk in a streaming way.
 
-    Returns (embedding_dim, ids_array_or_None).
-    The ids_array is only returned when the SQL selects an ``id`` column
-    (used for flag embeddings).
-
-    The key property is that only one cursor-chunk worth of vectors exists
-    in RAM at any time — as soon as all chunks are gathered they are
-    concatenated, saved to disk, and freed.
+    Only one batch of vectors is ever resident, so indexing stays well within
+    modest memory budgets even for tens of thousands of rows.
     """
-    chunks: list[np.ndarray] = []
-    id_chunks: list[np.ndarray] = []
-    has_ids = False
-    embedding_dim = 0
+    existing_embeddings = existing[0] if existing is not None else None
+    existing_ids = existing[1] if existing is not None else None
+    n_existing = 0 if existing_ids is None else int(len(existing_ids))
+    total = n_existing + int(len(new_ids))
 
-    pbar = tqdm(total=total, desc=progress_label, unit="text") if progress else None
+    dest_emb_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path: Path | None = None
+    pbar = tqdm(total=total, desc=label, unit="text") if progress else None
+    dim = 0
+    written = 0
 
-    offset = 0
-    while True:
-        rows = conn.execute(sql, (_EMBED_CURSOR_CHUNK, offset)).fetchall()
-        if not rows:
-            break
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=dest_emb_path.parent,
+            prefix=f"{dest_emb_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temp_path = Path(handle.name)
 
-        texts = [row[text_col] for row in rows]
+            if total == 0:
+                np.save(handle, np.empty((0, 0), dtype=np.float32))
+            else:
+                # 1. Copy already-indexed rows straight through (mmap → disk).
+                if n_existing and existing_embeddings is not None:
+                    dim = int(existing_embeddings.shape[1])
+                    _write_npy_header(handle, total, dim)
+                    for start in range(0, n_existing, _EMBED_COPY_CHUNK):
+                        block = np.ascontiguousarray(
+                            existing_embeddings[start : start + _EMBED_COPY_CHUNK],
+                            dtype=np.float32,
+                        )
+                        handle.write(block.tobytes())
+                        written += int(len(block))
+                        if pbar is not None:
+                            pbar.update(int(len(block)))
+                        del block
 
-        # Detect if the query includes an 'id' column (flag embeddings)
-        if offset == 0:
-            has_ids = "id" in rows[0].keys()
+                # 2. Embed genuinely new rows in batches.
+                for start in range(0, len(new_ids), _EMBED_BATCH):
+                    batch = [int(value) for value in new_ids[start : start + _EMBED_BATCH]]
+                    placeholders = ",".join("?" for _ in batch)
+                    rows = conn.execute(
+                        f"SELECT description FROM {table} "
+                        f"WHERE id IN ({placeholders}) ORDER BY id",
+                        batch,
+                    ).fetchall()
+                    vectors = _embed_batch([row["description"] or "" for row in rows])
+                    if vectors.size == 0:
+                        continue
+                    if dim == 0:
+                        dim = int(vectors.shape[1]) if vectors.ndim == 2 else 0
+                        _write_npy_header(handle, total, dim)
+                    block = np.ascontiguousarray(vectors, dtype=np.float32)
+                    handle.write(block.tobytes())
+                    written += int(len(block))
+                    if pbar is not None:
+                        pbar.update(len(batch))
+                    del block, vectors, rows
 
-        if has_ids:
-            ids = np.array([row["id"] for row in rows], dtype=np.int32)
+            handle.flush()
+            os.fsync(handle.fileno())
 
-        for i in range(0, len(texts), _EMBED_BATCH):
-            batch = texts[i : i + _EMBED_BATCH]
-            vectors = _embed_batch(batch)
-            if vectors.size > 0:
-                chunks.append(vectors)
-                if has_ids:
-                    id_chunks.append(ids[i : i + len(batch)])
-                if embedding_dim == 0 and vectors.ndim == 2:
-                    embedding_dim = vectors.shape[1]
-            del vectors
-            if pbar is not None:
-                pbar.update(len(batch))
+        if written != total:
+            raise RuntimeError(
+                f"Embedding write for '{table}' is incomplete ({written}/{total})."
+            )
 
-        offset += _EMBED_CURSOR_CHUNK
-        del rows, texts
-        gc.collect()
+        os.replace(temp_path, dest_emb_path)
+        temp_path = None
+    finally:
+        if pbar is not None:
+            pbar.close()
+        if temp_path is not None and temp_path.exists():
+            temp_path.unlink(missing_ok=True)
 
-    if pbar is not None:
-        pbar.close()
-
-    # ---- Concatenate and flush to disk immediately ----
-    merged = np.vstack(chunks) if chunks else np.empty((0, 0), dtype=np.float32)
-    del chunks
+    merged_ids = new_ids if existing_ids is None else np.concatenate([existing_ids, new_ids])
+    _atomic_save_npy(dest_ids_path, np.ascontiguousarray(merged_ids, dtype=np.int32))
+    del merged_ids
     gc.collect()
 
-    _atomic_save_npy(dest_path, merged)
-    del merged
-    gc.collect()
-
-    merged_ids: np.ndarray | None = None
-    if has_ids and id_chunks:
-        merged_ids = np.concatenate(id_chunks)
-        del id_chunks
-        gc.collect()
-
-    return embedding_dim, merged_ids
+    return dim
 
 
-def _rebuild_embeddings_incremental(conn, progress: bool) -> int:
-    """Build tool and flag embeddings with minimal peak memory.
+def _sync_embeddings(conn, progress: bool, force: bool = False) -> int:
+    """Bring the tool embedding file in sync with the database.
 
-    Each embedding type is computed, written to disk, and freed BEFORE
-    the next type starts.  This means peak memory is roughly:
-        ONNX model  +  one type's accumulated vectors
+    Existing vectors are reused when they are a valid prefix of the current id
+    sequence; only genuinely new rows are embedded. When ``force`` is set (or the
+    stored state is unusable) the whole matrix is rebuilt.
 
-    instead of the old approach where ALL vectors lived in RAM
-    simultaneously.
+    Flags are intentionally *not* embedded: they are ranked with FTS5 at query
+    time, which keeps indexing fast and avoids a large in-memory vector file.
     """
     embedding_dim = 0
 
-    # ---- Phase A: Tool embeddings → disk ----
-    total_tools = conn.execute("SELECT COUNT(*) FROM tools").fetchone()[0]
-    if total_tools > 0:
-        dim, _ = _stream_embed_to_disk(
-            conn,
-            dest_path=config.tool_embeddings_path(),
-            sql="SELECT description FROM tools ORDER BY id LIMIT ? OFFSET ?",
-            text_col="description",
-            total=total_tools,
-            progress_label="Embedding tools",
-            progress=progress,
+    targets = (
+        ("tools", config.tool_embeddings_path(), config.tool_embedding_ids_path(), "Embedding tools"),
+    )
+
+    for table, emb_path, ids_path, label in targets:
+        db_ids = np.array(
+            [int(row["id"]) for row in conn.execute(f"SELECT id FROM {table} ORDER BY id")],
+            dtype=np.int32,
         )
+
+        if len(db_ids) == 0:
+            _atomic_save_npy(emb_path, np.empty((0, 0), dtype=np.float32))
+            _atomic_save_npy(ids_path, np.empty(0, dtype=np.int32))
+            continue
+
+        state = None if force else _load_embedding_state(emb_path, ids_path)
+        if state is None and not force:
+            state = _infer_ids_from_matrix(emb_path, db_ids)
+
+        usable = (
+            state is not None
+            and len(state[1]) <= len(db_ids)
+            and len(state[1]) == state[0].shape[0]
+            and np.array_equal(state[1], db_ids[: len(state[1])])
+        )
+
+        if usable:
+            existing_embeddings, existing_ids = state  # type: ignore[misc]
+            new_ids = db_ids[len(existing_ids) :]
+
+            if len(new_ids) == 0:
+                # Nothing new: keep the files as-is, but migrate missing id files.
+                dim = int(existing_embeddings.shape[1]) if existing_embeddings.ndim == 2 else 0
+                if not ids_path.exists():
+                    _atomic_save_npy(
+                        ids_path, np.ascontiguousarray(existing_ids, dtype=np.int32)
+                    )
+            else:
+                dim = _write_embeddings(
+                    dest_emb_path=emb_path,
+                    dest_ids_path=ids_path,
+                    conn=conn,
+                    table=table,
+                    existing=(existing_embeddings, existing_ids),
+                    new_ids=new_ids,
+                    label=label,
+                    progress=progress,
+                )
+        else:
+            dim = _write_embeddings(
+                dest_emb_path=emb_path,
+                dest_ids_path=ids_path,
+                conn=conn,
+                table=table,
+                existing=None,
+                new_ids=db_ids,
+                label=label,
+                progress=progress,
+            )
+
+        del state
+        gc.collect()
+
         if dim > 0:
             embedding_dim = dim
-    else:
-        _atomic_save_npy(
-            config.tool_embeddings_path(), np.empty((0, 0), dtype=np.float32)
-        )
 
-    # ---- Phase B: Flag embeddings → disk ----
-    total_flags = conn.execute("SELECT COUNT(*) FROM flags").fetchone()[0]
-    if total_flags > 0:
-        dim, flag_ids = _stream_embed_to_disk(
-            conn,
-            dest_path=config.flag_embeddings_path(),
-            sql="SELECT id, description FROM flags ORDER BY id LIMIT ? OFFSET ?",
-            text_col="description",
-            total=total_flags,
-            progress_label="Embedding flags",
-            progress=progress,
-        )
-        if dim > 0 and embedding_dim == 0:
-            embedding_dim = dim
-
-        if flag_ids is not None:
-            _atomic_save_npy(config.flag_embedding_ids_path(), flag_ids)
-            del flag_ids
-            gc.collect()
-        else:
-            _atomic_save_npy(
-                config.flag_embedding_ids_path(), np.empty(0, dtype=np.int32)
-            )
-    else:
-        _atomic_save_npy(
-            config.flag_embeddings_path(), np.empty((0, 0), dtype=np.float32)
-        )
-        _atomic_save_npy(
-            config.flag_embedding_ids_path(), np.empty(0, dtype=np.int32)
-        )
-
-    # ---- Validate ----
     if embedding_dim <= 0:
         raise RuntimeError("Unable to determine embedding dimension from indexed data.")
 
@@ -413,6 +449,7 @@ def _unload_embedding_model() -> None:
     """Release the cached embedding model to free memory."""
     try:
         from sempropos.intelligence.providers import _fastembed as fe
+
         fe.unload_model()
     except Exception:  # noqa: BLE001
         pass
@@ -429,6 +466,7 @@ def _clear_index_data() -> None:
     paths = [
         config.db_path(),
         config.tool_embeddings_path(),
+        config.tool_embedding_ids_path(),
         config.flag_embeddings_path(),
         config.flag_embedding_ids_path(),
         config.index_meta_path(),
@@ -436,10 +474,8 @@ def _clear_index_data() -> None:
     ]
     for path in paths:
         if path.exists():
-            try:
+            with contextlib.suppress(OSError):
                 path.unlink()
-            except OSError:
-                pass
 
 
 # ============================================================================
@@ -448,52 +484,86 @@ def _clear_index_data() -> None:
 
 
 def build_index(progress: bool = True, force: bool = False) -> None:
+    """Build or incrementally update the local index.
+
+    Args:
+        progress: Show progress bars for parsing and embedding.
+        force: Delete the existing index first and rebuild from scratch.
+    """
     config.ensure_data_dirs()
 
-    if force:
+    # Read metadata before any wipe so a parser/format change can trigger a full
+    # rebuild instead of leaving stale rows in place.
+    meta = config.read_index_meta() or {}
+    try:
+        stored_index_revision = int(meta.get("index_revision") or 0)
+    except (TypeError, ValueError):
+        stored_index_revision = 0
+
+    full_rebuild = force or stored_index_revision != config.INDEX_REVISION
+    if full_rebuild:
         _clear_index_data()
 
     schema.initialize_database()
 
     embedding_provider, embedding_provider_config = detect_embedding_provider()
+    current_provider = embedding_provider or ""
+    current_model = (embedding_provider_config.model if embedding_provider_config else None) or ""
 
-    tools = _discover_tools()
+    source = ManSource()
+    tools = list(source.discover())
     if not tools:
         raise RuntimeError("No installed tools discovered via man -k")
 
     with schema.get_connection() as conn:
-        meta = config.read_index_meta() or {}
+        if full_rebuild:
+            pending = tools
+            force_embeddings = True
+        else:
+            existing = {
+                (row["name"], row["section"])
+                for row in conn.execute("SELECT name, section FROM tools").fetchall()
+            }
+            pending = [
+                record for record in tools if (record.name, record.section) not in existing
+            ]
 
-        existing = {
-            (row["name"], row["section"]) for row in conn.execute("SELECT name, section FROM tools").fetchall()
-        }
-
-        existing_version = str(meta.get("sempropos_version") or "")
-        
-        # Hard check for version shifts or missing metadata to trigger full rebuilds
-        if existing and (not existing_version or existing_version != __version__):
-            raise RuntimeError(
-                config.VERSION_UPDATE_NOTICE_TEMPLATE.format(version=__version__)
+            # If the embedding backend or representation changed since the last
+            # run, existing vectors are meaningless: re-embed even if the parsed
+            # rows are still valid.
+            stored_provider = str(meta.get("embedding_provider") or "")
+            stored_model = str(meta.get("embedding_model") or "")
+            try:
+                stored_revision = int(meta.get("embedding_revision") or 0)
+            except (TypeError, ValueError):
+                stored_revision = 0
+            force_embeddings = (
+                stored_provider != current_provider
+                or stored_model != current_model
+                or stored_revision != config.EMBEDDING_REVISION
             )
 
-        pending = [row for row in tools if (row[0], row[1]) not in existing]
+        # Phase 1: parse man pages and insert new tools.
+        _ingest_tools(conn, source, pending, progress)
 
-        # Phase 1: Parse man pages and insert into DB (generator + batch commits)
-        _ingest_tools(conn, pending, progress)
+        # Phase 2: bring embeddings in sync (incremental unless forced).
+        embedding_dim = _sync_embeddings(conn, progress=progress, force=force_embeddings)
 
-        # Phase 2: Build embeddings incrementally (cursor-based streaming)
-        embedding_dim = _rebuild_embeddings_incremental(conn, progress=progress)
+        tool_count = int(conn.execute("SELECT COUNT(*) FROM tools").fetchone()[0])
+        flag_count = int(conn.execute("SELECT COUNT(*) FROM flags").fetchone()[0])
 
-    # Phase 3: Cleanup — release the embedding model from memory
+    # Phase 3: release the embedding model before writing metadata.
     _unload_embedding_model()
 
     atomic_write_text(
         config.last_indexed_path(),
-        datetime.now(tz=timezone.utc).isoformat(),
+        datetime.now(tz=UTC).isoformat(),
     )
-    
+
     config.write_index_meta(
         embedding_dim=embedding_dim,
-        embedding_model=(embedding_provider_config.model if embedding_provider_config else None) or "",
-        embedding_provider=(embedding_provider if embedding_provider else None) or "",
+        embedding_model=current_model,
+        embedding_provider=current_provider,
+        tool_count=tool_count,
+        flag_count=flag_count,
     )

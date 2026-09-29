@@ -11,17 +11,18 @@ This module manages all application-level and provider-specific configuration:
 
 from __future__ import annotations
 
+import os
 import tomllib
-import tomli_w
-import platformdirs
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
-from datetime import datetime, timezone
-from dataclasses import dataclass, field, asdict
 from typing import Literal, get_args
+
+import platformdirs
+import tomli_w
 
 from sempropos import __version__
 from sempropos.utils import atomic_write_text
-
 
 # ============================================================================
 # Application Constants
@@ -32,6 +33,25 @@ APP_NAME = "sempropos"
 # Embedding models: primary for normal RAM, floor model for constrained environments
 EMBEDDING_PRIMARY_MODEL = "nomic-ai/nomic-embed-text-v1.5-Q"
 
+# Default synthesis recommendation. A small instruct model keeps first-token
+# latency low on CPU-only machines while remaining capable enough when grounded
+# by retrieved man-page context. Users can override it during `configure`.
+RECOMMENDED_SYNTHESIS_MODEL = "qwen2.5:1.5b"
+RECOMMENDED_EMBEDDING_MODEL = EMBEDDING_PRIMARY_MODEL
+
+# Bump whenever the embedding representation changes (for example, switching to
+# task-aware query/document prefixes) so stale vectors are rebuilt on next update.
+EMBEDDING_REVISION = 2
+
+# Bump whenever the parsing/index format changes in a way that requires the man
+# pages to be re-read (for example, extracting flags from new sections).
+INDEX_REVISION = 2
+
+# Embedding model cache. fastembed defaults to a temporary directory, which means
+# the model is re-downloaded after a reboot and breaks offline operation. Pin it
+# inside the application data directory instead.
+EMBEDDINGS_CACHE_DIR = "embeddings"
+
 # ============================================================================
 # Data Files and Paths
 # ============================================================================
@@ -39,6 +59,7 @@ EMBEDDING_PRIMARY_MODEL = "nomic-ai/nomic-embed-text-v1.5-Q"
 dirs = platformdirs.PlatformDirs("sempropos", "adper")
 
 TOOL_EMBEDDINGS_FILE = "tool_embeddings.npy"
+TOOL_EMBEDDING_IDS_FILE = "tool_embedding_ids.npy"
 FLAG_EMBEDDINGS_FILE = "flag_embeddings.npy"
 FLAG_EMBEDDING_IDS_FILE = "flag_embedding_ids.npy"
 LAST_INDEXED_FILE = "last_indexed"
@@ -54,12 +75,12 @@ INTELLIGENCE_CONFIG_FILE = "intelligence.toml"
 # ============================================================================
 
 MISMATCH_UPDATE_NOTICE = (
-    "[sempropos] Model/index metadata mismatch. Re-indexing required.\n"
-    "Run: sempropos --update"
+    "[sem] Index is missing or incompatible with the current embedding configuration.\n"
+    "Run: sem update"
 )
 VERSION_UPDATE_NOTICE_TEMPLATE = (
-    "[sempropos] Model updated in sempropos {version}. Re-indexing required.\n"
-    "Run: sempropos --update"
+    "[sem] Index format changed in sempropos {version}.\n"
+    "Run: sem update"
 )
 
 # ============================================================================
@@ -71,6 +92,7 @@ VERSION_UPDATE_NOTICE_TEMPLATE = (
 SynthesisProviders = Literal[
     "tier0",
     "ollama",
+    "openai_compatible",
 ]
 EmbeddingProviders = Literal[
     "fastembed_local",
@@ -80,7 +102,9 @@ EmbeddingProviders = Literal[
 # Runtime types for validation and config loading
 SUPPORTED_SYNTHESIS_PROVIDERS: tuple[str, ...] = get_args(SynthesisProviders)
 SUPPORTED_EMBEDDING_PROVIDERS: tuple[str, ...] = get_args(EmbeddingProviders)
-SUPPORTED_PROVIDERS: tuple[str, ...] = tuple(set(SUPPORTED_SYNTHESIS_PROVIDERS + SUPPORTED_EMBEDDING_PROVIDERS))
+SUPPORTED_PROVIDERS: tuple[str, ...] = tuple(
+    dict.fromkeys(SUPPORTED_SYNTHESIS_PROVIDERS + SUPPORTED_EMBEDDING_PROVIDERS)
+)
 
 DEFAULT_SYNTHESIS_PROVIDER = "tier0"
 DEFAULT_EMBEDDING_PROVIDER = "fastembed_local"
@@ -104,6 +128,12 @@ class RoleConfig:
         api_key_secret: Keyring secret name for stored API key.
         api_key_plaintext: Plaintext API key (fallback, should use keyring).
         timeout_seconds: Request timeout in seconds.
+        think: Whether a reasoning/thinking model should emit its reasoning trace.
+            ``False`` keeps latency low and is the recommended default.
+        temperature: Sampling temperature. ``0.0`` favours deterministic output.
+        max_tokens: Upper bound on generated tokens (latency guard).
+        keep_alive: How long a provider should keep the model warm (e.g. "30m").
+        stop: Optional stop sequences for generation.
     """
 
     provider: str
@@ -113,6 +143,11 @@ class RoleConfig:
     api_key_secret: str | None = None
     api_key_plaintext: str | None = None
     timeout_seconds: float = 30.0
+    think: bool | None = False
+    temperature: float = 0.0
+    max_tokens: int = 256
+    keep_alive: str | int | None = "30m"
+    stop: list[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -139,19 +174,30 @@ class IntelligenceConfig:
 
 
 def data_dir() -> Path:
-    """Get the application data directory."""
+    """Get the application data directory (overridable via SEMPROPOS_DATA_DIR)."""
+    override = os.environ.get("SEMPROPOS_DATA_DIR")
+    if override:
+        return Path(override).expanduser()
     return dirs.user_data_path
 
 
 def config_dir() -> Path:
-    """Get the application configuration directory."""
+    """Get the application configuration directory (overridable via SEMPROPOS_CONFIG_DIR)."""
+    override = os.environ.get("SEMPROPOS_CONFIG_DIR")
+    if override:
+        return Path(override).expanduser()
     return dirs.user_config_path
 
 
 # ===== Directory initialization =====
+def embeddings_cache_dir() -> Path:
+    """Return the directory used to cache embedding models across runs."""
+    return data_dir() / EMBEDDINGS_CACHE_DIR
+
+
 def ensure_data_dirs() -> None:
     """Create application data directories if missing."""
-    directories = (data_dir(), config_dir())
+    directories = (data_dir(), config_dir(), embeddings_cache_dir())
     for directory in directories:
         directory.mkdir(parents=True, exist_ok=True)
 
@@ -163,6 +209,10 @@ def db_path() -> Path:
 
 def tool_embeddings_path() -> Path:
     return data_dir() / TOOL_EMBEDDINGS_FILE
+
+
+def tool_embedding_ids_path() -> Path:
+    return data_dir() / TOOL_EMBEDDING_IDS_FILE
 
 
 def flag_embeddings_path() -> Path:
@@ -195,23 +245,33 @@ def write_index_meta(
     embedding_dim: int,
     embedding_model: str,
     embedding_provider: str,
+    tool_count: int | None = None,
+    flag_count: int | None = None,
 ) -> None:
     """Write index metadata file used for query-time compatibility checks."""
     destination = index_meta_path()
 
-    payload = {
+    payload: dict = {
         "embedding_dim": int(embedding_dim),
         "embedding_model": embedding_model,
         "embedding_provider": embedding_provider,
-        "indexed_at": datetime.now(tz=timezone.utc).isoformat(),
+        "embedding_revision": int(EMBEDDING_REVISION),
+        "index_revision": int(INDEX_REVISION),
+        "indexed_at": datetime.now(tz=UTC).isoformat(),
         "sempropos_version": __version__,
+        "status": "complete",
     }
+    if tool_count is not None:
+        payload["tool_count"] = int(tool_count)
+    if flag_count is not None:
+        payload["flag_count"] = int(flag_count)
+
     atomic_write_text(
         destination,
         tomli_w.dumps(payload),
     )
 
-#TODO: Decide read_validated_index_meta() vs read_index_meta()
+
 def read_index_meta() -> dict | None:
     """Read index metadata file."""
     path = index_meta_path()
@@ -227,15 +287,37 @@ def read_index_meta() -> dict | None:
 
 
 def read_validated_index_meta() -> tuple[str, int, str]:
-    """Return validated embedding metadata needed by query-time retrieval."""
+    """Return validated embedding metadata needed by query-time retrieval.
+
+    Raises:
+        RuntimeError: When the index is missing, incomplete, or was built with a
+            different embedding configuration than the one currently selected.
+            The message tells the user exactly which command to run.
+    """
     meta = read_index_meta()
     if meta is None:
+        raise RuntimeError(MISMATCH_UPDATE_NOTICE)
+
+    if str(meta.get("status") or "complete") != "complete":
+        raise RuntimeError(MISMATCH_UPDATE_NOTICE)
+
+    try:
+        stored_revision = int(meta.get("embedding_revision") or 0)
+    except (TypeError, ValueError):
+        stored_revision = 0
+    if stored_revision != EMBEDDING_REVISION:
+        raise RuntimeError(MISMATCH_UPDATE_NOTICE)
+
+    try:
+        stored_index_revision = int(meta.get("index_revision") or 0)
+    except (TypeError, ValueError):
+        stored_index_revision = 0
+    if stored_index_revision != INDEX_REVISION:
         raise RuntimeError(MISMATCH_UPDATE_NOTICE)
 
     model_name = str(meta.get("embedding_model") or "")
     embedding_dim = meta.get("embedding_dim")
     embedding_provider = str(meta.get("embedding_provider") or "")
-    sempropos_version = str(meta.get("sempropos_version") or "")
 
     if not model_name or embedding_dim is None or not embedding_provider:
         raise RuntimeError(MISMATCH_UPDATE_NOTICE)
@@ -250,14 +332,29 @@ def read_validated_index_meta() -> tuple[str, int, str]:
     if dim_value <= 0:
         raise RuntimeError(MISMATCH_UPDATE_NOTICE)
 
-    if sempropos_version and sempropos_version != __version__:
-        raise RuntimeError(VERSION_UPDATE_NOTICE_TEMPLATE.format(version=__version__))
-
     settings = load_intelligence_config()
     if settings.embedding.provider != embedding_provider:
         raise RuntimeError(MISMATCH_UPDATE_NOTICE)
 
+    # The embedded model determines the vector space; a change invalidates the
+    # stored vectors even when the provider name is unchanged.
+    configured_model = settings.embedding.model
+    if configured_model and configured_model != model_name:
+        raise RuntimeError(MISMATCH_UPDATE_NOTICE)
+
+    if not tool_embeddings_path().exists():
+        raise RuntimeError(MISMATCH_UPDATE_NOTICE)
+
     return model_name, dim_value, embedding_provider
+
+
+def is_index_complete() -> bool:
+    """Return True when a usable index is present on disk."""
+    try:
+        read_validated_index_meta()
+    except RuntimeError:
+        return False
+    return True
 
 
 # ============================================================================
@@ -307,6 +404,31 @@ def _parse_role_block(block: dict, supported: tuple[str, ...], default_provider:
             if "timeout_seconds" in block
             and isinstance(block.get("timeout_seconds"), (int, float))
             else 30.0
+        ),
+        think=(
+            bool(block.get("think"))
+            if isinstance(block.get("think"), bool)
+            else False
+        ),
+        temperature=(
+            float(block.get("temperature"))
+            if isinstance(block.get("temperature"), (int, float))
+            else 0.0
+        ),
+        max_tokens=(
+            int(block.get("max_tokens"))
+            if isinstance(block.get("max_tokens"), (int, float))
+            else 256
+        ),
+        keep_alive=(
+            block.get("keep_alive")
+            if isinstance(block.get("keep_alive"), (str, int))
+            else "30m"
+        ),
+        stop=(
+            [str(item) for item in block.get("stop")]
+            if isinstance(block.get("stop"), list)
+            else None
         ),
     )
 

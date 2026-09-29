@@ -7,7 +7,7 @@ This is done by comparing the last indexed timestamp with the modification time 
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from sempropos import config
@@ -68,8 +68,8 @@ def _to_utc_timestamp(value: datetime) -> float:
         Float representing the epoch seconds in UTC.
     """
     if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc).timestamp()
-    return value.astimezone(timezone.utc).timestamp()
+        return value.replace(tzinfo=UTC).timestamp()
+    return value.astimezone(UTC).timestamp()
 
 
 def is_index_stale() -> bool:
@@ -91,3 +91,4 @@ def is_index_stale() -> bool:
 
     pkg_mtime_ts = Path(db_path).stat().st_mtime
     return pkg_mtime_ts > last_indexed_ts
+
