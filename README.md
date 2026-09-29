@@ -1,80 +1,128 @@
-# sempropos 🧰
+# sem 🧰
 
 [![PyPI version](https://badge.fury.io/py/sempropos.svg)](https://badge.fury.io/py/sempropos)
 [![Python versions](https://img.shields.io/pypi/pyversions/sempropos.svg)](https://pypi.org/project/sempropos/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Build Status](https://github.com/ADPer0705/sempropos/actions/workflows/ci.yml/badge.svg)](https://github.com/ADPer0705/sempropos/actions)
 
-`sempropos` is an open-source, local, offline-first CLI tool that turns a natural-language task description into a shell command. It does this by retrieving relevant context from your system's local man pages and synthesizing the output using a tiny local LLM.
+`sem` (distributed as the `sempropos` package) is an open-source, local,
+offline-first CLI tool that turns a natural-language task description into a
+shell command. It retrieves relevant context from your system's local man pages
+and synthesizes the output using a local model.
 
-Say goodbye to complex web searches just to find the right flag—`sempropos` keeps it entirely on your machine.
+Say goodbye to complex web searches just to find the right flag — `sem` keeps it
+entirely on your machine.
 
 ## ✨ Features
 
-- **Privacy First, Offline First:** No API keys, no telemetry, no cloud backend. Everything runs locally natively.
+- **Privacy First, Offline First:** No API keys, no telemetry, no cloud backend required. Run entirely on your machine.
 - **Local SQLite Index:** Fast retrieval of man pages (sections 1 and 8).
-- **Semantic Retrieval:** Hybrid ranking via BM25, embedding similarity, and Reciprocal Rank Fusion.
-- **Local LLM backend:** Synthesizes terminal commands using `llama.cpp` + a tiny Qwen 2.5 1.5B GGUF model, or Ollama.
+- **Semantic Retrieval:** Hybrid ranking via BM25, embedding similarity, weighted score fusion, and an exact-tool-name boost.
+- **Fast local inference:** Uses Ollama (with reasoning disabled and the model kept warm) for near-instant answers, and falls back to showing matched man pages when no model is available.
+- **Pluggable providers:** Ollama out of the box, plus any OpenAI-compatible endpoint (vLLM, LM Studio, llama.cpp server, a gateway…). More providers are on the way.
+- **Shell integration:** Press `Ctrl+S` to turn the natural-language sentence you just typed into a command, in place.
 - **Smart staleness checks:** Detects when your package manager updates software and gently prompts an index refresh.
 
 ## 🚀 Quick Start
 
-### Option 1: One-Command Installer (Recommended)
-
-Simply pipe the installer script into bash (make sure you have `curl` and Python installed!):
+### Install with `uv` (recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ADPer0705/sempropos/main/install.sh | bash
+uv tool install sempropos
+sem install          # check requirements, download the embedding model, build the index
 ```
 
-The script will automatically set up `pipx`, install `sempropos`, download the runtime assets (`llama-cli` and the LLM model), and build the local index.
-
-### Option 2: Install from Source
+### Install from source
 
 ```bash
 git clone https://github.com/ADPer0705/sempropos.git
 cd sempropos
-
-# 1. Setup a virtual environment & install dependencies
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -e .
-
-# 2. Bootstrap runtime assets & download LLM model
-sempropos --install
+uv venv && uv sync
+uv run sem install
 ```
+
+`sem install` writes a default configuration, downloads the embedding model into
+the local data directory (so it works offline afterwards), and builds the index.
+If Ollama is running it is selected as the synthesis backend; otherwise `sem`
+still works and falls back to showing matched man pages.
 
 ## 📖 Usage
 
 ### The Main Query
 
-Describe what you want to do in natural language:
+Describe what you want to do in natural language. A bare query works, and `ask`
+is available when you want to be explicit:
 
 ```bash
-sempropos "list files in archive.7z"
-sempropos "find all files larger than 100MB"
-sempropos "monitor network traffic on eth0"
+sem "list files in archive.7z"
+sem ask "find all files larger than 100MB"
+sem ask "monitor network traffic on eth0"
 ```
 
-If it succeeds, you'll be handed the correct shell invocation instantly!
+If it succeeds, you'll be handed the correct shell invocation instantly.
 
-### Management Commands
+### Commands
+
+Management is done with subcommands, not flags:
 
 ```bash
-sempropos --check    # Check if a new package installation requires updating the man page index
-sempropos --update   # Update the index with new installed programs
-sempropos --install  # (Re)download runtime assets and (re)build the index completely
+sem install      # First-time setup: check requirements, write config, build the index
+sem update       # Refresh the index with newly installed tools (incremental)
+sem check        # Check index freshness and completeness
+sem configure    # Choose synthesis/embedding providers interactively
+sem providers    # List providers and whether they are available
+sem init zsh     # Print shell integration for zsh (also: bash, fish)
+sem version      # Print the version
 ```
+
+## 🐚 Shell integration (Ctrl+S)
+
+Add one line to your shell rc, then reload it:
+
+```bash
+# ~/.zshrc  (or ~/.bashrc; use `sem init fish` for fish)
+eval "$(sem init zsh)"
+```
+
+Now, instead of running `sem` as a separate command, type the natural-language
+task directly on your prompt and press **Ctrl+S**. The line is replaced in place
+with the generated command, ready to review and run:
+
+```text
+❯ find all files larger than 100MB        # press Ctrl+S
+❯ find . -type f -size +100M
+```
+
+Notes:
+
+- The snippet runs `stty -ixon`, which frees `Ctrl+S` from the terminal's
+  XOFF/flow-control behavior. If your terminal still intercepts it, you can
+  re-bind a different key (for example `^G`) by editing the `bindkey`/`bind`
+  line.
+- `Ctrl+R` (history) and `Ctrl+T` (files) are left to [fzf](https://github.com/junegunn/fzf);
+  `sem` only adds `Ctrl+S`.
+- The command is inserted, never executed — you always get the final say.
 
 ## 🧠 Backend behavior
 
-Backend selection order per query:
+Synthesis backend selection order per query:
 
-1. Local `~/.local/share/sempropos/bin/llama-cli` (or `llama-cli` in `PATH`)
-2. Ollama if `127.0.0.1:11434` is reachable
-3. tier0 fallback output (retrieved tools, key flags, and examples)
+1. **Ollama** if the daemon is reachable, using the configured model.
+2. **OpenAI-compatible** endpoint if one is configured (`base_url`).
+3. **tier0** fallback: retrieved tools, key flags, and examples, with no LLM.
 
-When your package database changes since the last index, sempropos prints a non-blocking warning so you know it's time to run `--update`.
+To keep queries fast, Ollama is called with reasoning/thinking disabled, a
+temperature of `0`, a bounded output length, and a long `keep_alive` so the
+model stays warm between invocations. `sem install` / `update` warm the model
+once so your first real query is not the one paying the load cost.
+
+The default recommendation is a small instruct model (see
+`RECOMMENDED_SYNTHESIS_MODEL`) that stays fast on most consumer hardware while
+remaining capable when grounded by retrieved man-page context. `sem configure`
+lets you opt into a larger model or a remote endpoint.
+
+When your package database changes since the last index, `sem` prints a
+non-blocking warning so you know it's time to run `sem update`.
 
 ## 📁 Data Layout
 
@@ -84,16 +132,15 @@ Default location for data assets:
 ~/.local/share/sempropos/
 	index.db
 	tool_embeddings.npy
-	flag_embeddings.npy
-	flag_embedding_ids.npy
+	tool_embedding_ids.npy
+	index.meta
 	last_indexed
-	models/
-		qwen2.5-1.5b-instruct-q4_k_m.gguf
-	bin/
-		llama-cli
+	embeddings/          # pinned embedding-model cache (kept for offline use)
 ```
 
-Override data location with:
+Flag ranking uses the SQLite FTS5 index, so no flag embedding files are needed.
+
+Override the data location with:
 
 ```bash
 export SEMPROPOS_DATA_DIR=/path/to/sempropos-data
@@ -101,32 +148,29 @@ export SEMPROPOS_DATA_DIR=/path/to/sempropos-data
 
 ## 🤝 Contributing
 
-We welcome contributions from everyone! Whether you're fixing bugs, adding new features, or improving documentation, your help makes `sempropos` better for the entire community.
+We welcome contributions from everyone! Whether you're fixing bugs, adding new
+features, or improving documentation, your help makes `sem` better for the
+entire community.
 
-Please read our [CONTRIBUTING.md](CONTRIBUTING.md) for conventions on pull requests, code style, and reporting issues.
-
-For a deep dive into how `sempropos` indexes man pages, retrieves vectors and generates commands, read the [Architecture Guide (AGENTS.md)](AGENTS.md).
+Please read our [CONTRIBUTING.md](CONTRIBUTING.md) for conventions on pull
+requests, code style, and reporting issues.
 
 ## 🧪 Testing & Quality
 
-Run the full test suite with the project coverage gate:
+> Tests are being rebuilt. Until the suite returns, CI installs the package and
+> verifies that every module imports cleanly on Python 3.11–3.13.
+
+The quality policy for this repository remains:
+
+- Running the tool must never require an API key.
+- Provider integration tests are **mocked/offline by default** for deterministic CI runs.
+- Optional live provider smoke checks are local-only and guarded by explicit env vars/markers.
+
+Local checks:
 
 ```bash
-python -m pytest tests/ --cov=src/sempropos --cov-report=term-missing --cov-report=html --cov-fail-under=65
-```
-
-Quality policy for this repository:
-
-- CI coverage gate is **65% minimum**.
-- Provider tests are **mocked/offline by default** for deterministic CI runs.
-- Optional live provider smoke checks should be local-only and guarded by explicit env vars/markers.
-- Running tests should **not require any API key**.
-
-You can also use the Makefile shortcuts:
-
-```bash
-make test      # full suite + coverage gate
-make coverage  # full suite + coverage report only
+make lint     # ruff (when development dependencies are installed)
+make format   # ruff format + autofix
 ```
 
 ## 📄 License
@@ -137,4 +181,3 @@ This project is licensed under the [MIT License](LICENSE).
 
 - If you found a bug or have a feature request, please [open an issue](https://github.com/ADPer0705/sempropos/issues).
 - Want to chat or ask a question? Join the discussion on GitHub Discussions.
-

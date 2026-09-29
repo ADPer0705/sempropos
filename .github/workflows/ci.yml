@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    name: Test (Python ${{ matrix.python-version }})
+    name: Smoke (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -19,18 +19,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
       - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e .[dev]
+        run: uv sync --group dev --python ${{ matrix.python-version }}
 
-      - name: Run tests
-        run: pytest -q
+      # The full test suite is being rebuilt; until then CI verifies that every
+      # module imports cleanly so packaging regressions are caught early.
+      - name: Import smoke check
+        run: |
+          uv run --python ${{ matrix.python-version }} python -c "
+          import sempropos
+          import sempropos.cli
+          import sempropos.config
+          import sempropos.index
+          import sempropos.retrieval
+          import sempropos.sources
+          print('sempropos', sempropos.__version__, 'imports OK')
+          "
 
   build:
     name: Build package

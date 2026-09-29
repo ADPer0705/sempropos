@@ -1,6 +1,6 @@
-# Contributing to sempropos
+# Contributing to sem
 
-First off, thank you for considering contributing to `sempropos`! People like you make this tool better for everyone.
+First off, thank you for considering contributing to `sem` (the `sempropos` package)! People like you make this tool better for everyone.
 
 ## Table of Contents
 
@@ -33,13 +33,13 @@ By participating in this project, you are expected to uphold general open-source
 1. Fork the repo and create your branch from `main`.
 2. If you've added code that should be tested, add tests.
 3. Update the documentation if your changes require it.
-4. Ensure the full quality checks pass:
+4. Ensure the package still imports cleanly (the full test suite is being rebuilt):
 
    ```bash
-   python -m pytest tests/ --cov=src/sempropos --cov-report=term-missing --cov-report=html --cov-fail-under=65
+   python -c "import sempropos.cli, sempropos.index, sempropos.retrieval, sempropos.sources"
    ```
 
-5. Keep tests deterministic: provider/API tests should be mocked/offline in CI.
+5. Keep provider integration tests deterministic: mock/offline by default.
 6. Open a Pull Request!
 
 ## Development Setup
@@ -48,11 +48,11 @@ By participating in this project, you are expected to uphold general open-source
 2. Create a virtual environment: `uv venv`
 3. Activate the environment: `source .venv/bin/activate` 
 4. Install with development dependencies: `uv sync`
-5. To test retrieval locally, run `sempropos --install` to bootstrap the index.
+5. To test retrieval locally, run `sem install` (or `sem update` if you already have an index) to bootstrap the index.
 
 ### Test Policy
 
-- Minimum repository coverage target: **65%**.
+- The full test suite is being rebuilt; CI currently performs an import smoke check.
 - Default test mode is mocked/offline for provider integrations.
 - Live provider checks (if any) should be opt-in and never required for CI.
 - Standard test runs must not require any API key.

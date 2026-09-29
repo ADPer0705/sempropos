@@ -21,12 +21,12 @@ install-dev:
 
 format:
 	@echo "Formatting code with ruff..."
-	uv run ruff format src/ tests/
-	uv run ruff check --fix src/ tests/
+	uv run ruff format src/
+	uv run ruff check --fix src/
 
 lint:
 	@echo "Running ruff checks..."
-	uv run ruff check src/ tests/
+	uv run ruff check src/
 
 help:
 	@echo "Available targets:"

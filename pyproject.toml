@@ -58,7 +58,7 @@ Issues = "https://github.com/ADPer0705/sempropos/issues"
 Changelog = "https://github.com/ADPer0705/sempropos/releases"
 
 [project.scripts]
-sempropos = "sempropos.cli:main"
+sem = "sempropos.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -83,7 +83,13 @@ select = [
     "SIM", # simplify
     "C90", # complexity
 ]
-ignore = ["E501"]  # line length handled by formatter
+# E501: line length handled by formatter.
+# B008: Typer's documented pattern is `x = typer.Option(...)` in signatures.
+# B904: CLI control-flow exits intentionally re-raise `typer.Exit` in handlers.
+ignore = ["E501", "B008", "B904"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
 
 [tool.ruff.format]
 quote-style = "double"
