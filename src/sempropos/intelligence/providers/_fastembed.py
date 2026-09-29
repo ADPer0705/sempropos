@@ -1,7 +1,9 @@
 """FastEmbed provider implementation for text embedding."""
 
 from __future__ import annotations
+
 import os
+
 import numpy as np
 
 # Silence HuggingFace Hub telemetry and symlink warnings before import
@@ -9,10 +11,11 @@ os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 os.environ["HF_HUB_DISABLE_EXPERIMENTAL_WARNING"] = "1"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
+from sempropos import config
 from sempropos.intelligence.contracts import (
-    ProviderUnavailableError,
     ProviderConfigurationError,
     ProviderExecutionError,
+    ProviderUnavailableError,
 )
 
 try:
@@ -46,28 +49,44 @@ def get_available_models() -> list[str]:
         "sentence-transformers/all-MiniLM-L6-v2"
     ]
 
-def embed_texts(texts: list[str], model: str | None = None) -> np.ndarray:
+def embed_texts(
+    texts: list[str], model: str | None = None, kind: str = "document"
+) -> np.ndarray:
+    """Embed texts. ``kind`` selects the task-aware method when available.
+
+    Models such as ``nomic-embed-text`` and the BGE family expect different
+    prefixes for queries versus documents; FastEmbed exposes this through
+    ``query_embed`` and ``passage_embed``. Falling back to ``embed`` keeps the
+    provider working for models without instructions.
+    """
     global _CACHED_MODEL_NAME, _CACHED_ENGINE
 
     if not is_available():
         raise ProviderUnavailableError("FastEmbed library is not installed.")
-    
+
     if not model:
         raise ProviderConfigurationError("No model configured for FastEmbed embedding.")
 
     try:
         # Singleton pattern: Only load the heavy model into RAM ONCE per process
-        if _CACHED_MODEL_NAME != model or _CACHED_ENGINE is None:
+        if model != _CACHED_MODEL_NAME or _CACHED_ENGINE is None:
             _CACHED_MODEL_NAME = model
             _CACHED_ENGINE = TextEmbedding(
                 model_name=model,
+                cache_dir=str(config.embeddings_cache_dir()),
                 threads=_ONNX_THREADS,
             )
 
-        # embed() returns a generator — consume it directly into a
-        # pre-allocated array to avoid the intermediate Python list and
-        # the extra copies from vstack + astype.
-        gen = _CACHED_ENGINE.embed(texts)
+        engine = _CACHED_ENGINE
+        if kind == "query" and hasattr(engine, "query_embed"):
+            gen = iter(engine.query_embed(texts))
+        elif kind == "document" and hasattr(engine, "passage_embed"):
+            gen = iter(engine.passage_embed(texts))
+        else:
+            gen = iter(engine.embed(texts))
+
+        # Consume the generator directly into a pre-allocated array to avoid
+        # intermediate Python lists and the extra copies from vstack + astype.
         first = next(gen)
         dim = first.shape[0]
 
@@ -77,5 +96,7 @@ def embed_texts(texts: list[str], model: str | None = None) -> np.ndarray:
             out[idx] = vec
 
         return out
+    except StopIteration as e:
+        raise ProviderExecutionError("FastEmbed returned no embeddings.") from e
     except Exception as e:
         raise ProviderExecutionError(f"FastEmbed execution failed: {e}") from e

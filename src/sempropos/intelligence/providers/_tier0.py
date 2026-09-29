@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from sempropos.intelligence.contracts import SynthesisResult, StructuredPrompt
+from sempropos.intelligence.contracts import (
+    StructuredPrompt,
+    SynthesisOptions,
+    SynthesisResult,
+)
+
 
 def is_available() -> bool:
     """Tier0 is always available as the ultimate fallback."""
@@ -12,7 +17,11 @@ def get_available_models() -> list[str]:
     """Tier0 has no models, but we return a placeholder to satisfy the interface."""
     return ["tier0-placeholder-model"]
 
-def synthesize(prompt: StructuredPrompt, model: str | None = None) -> SynthesisResult:
+def synthesize(
+    prompt: StructuredPrompt,
+    model: str | None = None,
+    options: SynthesisOptions | None = None,
+) -> SynthesisResult:
     """
     Tier0 is the fallback for no model available.
     The tier0 output is handled by the cli. This return is just a placeholder to satisfy the interface and should never be used.

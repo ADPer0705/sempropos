@@ -9,10 +9,10 @@ This module provides shared, reusable helper logic including:
 
 from __future__ import annotations
 
-import os
-import sys
-import subprocess
 import importlib.util
+import os
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -26,7 +26,7 @@ def install_and_import(package: str) -> None:
     """Dynamically install and import a package if it's not already available."""
     if importlib.util.find_spec(package) is not None:
         return importlib.import_module(package)
-    
+
     try:
         subprocess.check_call([sys.executable, "-m", "pip", "install", package])
 

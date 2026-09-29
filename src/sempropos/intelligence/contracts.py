@@ -42,6 +42,24 @@ class SynthesisResult:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class SynthesisOptions:
+    """Provider-agnostic generation tuning passed to synthesis backends.
+
+    Kept separate from :class:`StructuredPrompt` so prompts remain stable while
+    latency/quality knobs can vary per configured role.
+    """
+
+    think: bool | None = False
+    temperature: float = 0.0
+    max_tokens: int = 256
+    keep_alive: str | int | None = "30m"
+    stop: list[str] | None = None
+    base_url: str | None = None
+    api_key: str | None = None
+    timeout_seconds: float = 30.0
+
+
 # ----- Provider Interface Protocols -----
 class SynthesisProviderBackend(Protocol):
     def is_available(self) -> bool:
@@ -53,7 +71,8 @@ class SynthesisProviderBackend(Protocol):
         ...
 
     def synthesize(
-        self, prompt: StructuredPrompt, model: str | None = None
+        self, prompt: StructuredPrompt, model: str | None = None,
+        options: SynthesisOptions | None = None,
     ) -> SynthesisResult:
         """Execute the synthesis and return a normalized result."""
         ...
@@ -63,7 +82,7 @@ class EmbeddingProviderBackend(Protocol):
     def is_available(self) -> bool:
         """Check if the library/daemon/service is reachable."""
         ...
-        
+
     def get_available_models(self) -> list[str]:
         """Return a list of available models for this provider."""
         ...
