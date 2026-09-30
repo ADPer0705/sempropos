@@ -24,6 +24,8 @@ By participating in this project, you are expected to uphold general open-source
 
 ### Suggesting Enhancements
 
+- First check [ROADMAP.md](ROADMAP.md) for known gaps and planned work — it is
+  the fastest way to find something concrete to contribute.
 - Open a new issue with a clear title and description.
 - Explain why this enhancement would be useful to most users.
 - Keep in mind the core constraint of this project: **fully local, privacy-first, offline-first**.

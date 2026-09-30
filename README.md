@@ -17,7 +17,7 @@ entirely on your machine.
 
 - **Privacy First, Offline First:** No API keys, no telemetry, no cloud backend required. Run entirely on your machine.
 - **Local SQLite Index:** Fast retrieval of man pages (sections 1 and 8).
-- **Semantic Retrieval:** Hybrid ranking via BM25, embedding similarity, weighted score fusion, and an exact-tool-name boost.
+- **Semantic Retrieval:** BM25-primary hybrid ranking with an exact-tool-name boost. Embedding similarity adds recall and breaks exact ties, so a weak embedding match can never outrank a confident lexical one.
 - **Fast local inference:** Uses Ollama (with reasoning disabled and the model kept warm) for near-instant answers, and falls back to showing matched man pages when no model is available.
 - **Pluggable providers:** Ollama out of the box, plus any OpenAI-compatible endpoint (vLLM, LM Studio, llama.cpp server, a gateway…). More providers are on the way.
 - **Shell integration:** Press `Ctrl+S` to turn the natural-language sentence you just typed into a command, in place.
@@ -154,6 +154,11 @@ entire community.
 
 Please read our [CONTRIBUTING.md](CONTRIBUTING.md) for conventions on pull
 requests, code style, and reporting issues.
+
+## 🗺️ Roadmap
+
+Known gaps and planned work live in [ROADMAP.md](ROADMAP.md). It is kept short
+and concrete — a good place to find a first contribution.
 
 ## 🧪 Testing & Quality
 
