@@ -200,19 +200,19 @@ def _query_mode(  # noqa: C901 — branchy dispatcher: index, retrieval, backend
         tokens = expand_query(query)
         bm25_results = query_bm25_ranking(
             tokens,
-            top_k=10,
+            top_k=20,
             name_tokens=tokenize(query),
             primary_tokens=primary_tokens(query),
         )
-        semantic_results = query_semantic_matches(query, top_k=10)
+        semantic_results = query_semantic_matches(query, top_k=20)
     except RuntimeError as exc:
         fail(str(exc))
 
     fused = hybrid_fusion(bm25_results, semantic_results)
     ranked_ids = (
-        [tool_id for tool_id, _score in fused[:3]]
-        or [tool_id for tool_id, _ in bm25_results[:3]]
-        or [tool_id for tool_id, _ in semantic_results[:3]]
+        [tool_id for tool_id, _score in fused[:5]]
+        or [tool_id for tool_id, _ in bm25_results[:5]]
+        or [tool_id for tool_id, _ in semantic_results[:5]]
     )
 
     candidates = _load_candidates(ranked_ids, query, quiet=porcelain)
