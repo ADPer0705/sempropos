@@ -1,6 +1,6 @@
 [project]
 name = "sempropos"
-version = "0.2.0"
+version = "0.3.0"
 description = "Offline CLI command synthesis from local man pages"
 readme = "README.md"
 requires-python = ">=3.11"
