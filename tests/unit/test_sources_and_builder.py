@@ -108,6 +108,16 @@ def test_help_probe_parses_clap_and_7z_and_blocks_unsafe(tmp_path: Path) -> None
     if suid_bin.stat().st_mode & stat.S_ISUID:
         assert is_safe_to_probe("suid_tool", suid_bin) is False
 
+    # A rogue script creating files in cwd during --help must NEVER pollute caller cwd.
+    rogue = tmp_path / "rogue_tool"
+    rogue.write_text("#!/bin/sh\ntouch leaked.log\necho 'Usage: rogue_tool [OPTIONS]'\n")
+    rogue.chmod(0o755)
+    from sempropos.sources.help_probe import run_help_probe
+
+    out = run_help_probe(rogue)
+    assert out is not None and "Usage: rogue_tool" in out
+    assert not (Path.cwd() / "leaked.log").exists()
+
 
 def test_tldr_markdown_and_zip_subcommand_attachment(tmp_path: Path) -> None:
     parsed = parse_tldr_markdown(_TLDR_TAR, "tar")

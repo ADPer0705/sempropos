@@ -14,6 +14,7 @@ import re
 import signal
 import stat
 import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -240,10 +241,11 @@ def is_safe_to_probe(name: str, binary_path: Path) -> bool:
     return stat.S_ISREG(st.st_mode)
 
 
-def _sanitized_env() -> dict[str, str]:
+def _sanitized_env(sandbox_home: str) -> dict[str, str]:
     return {
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-        "HOME": os.environ.get("HOME", "/tmp"),
+        "HOME": sandbox_home,
+        "TMPDIR": sandbox_home,
         "LANG": "C.UTF-8",
         "LC_ALL": "C.UTF-8",
         "TERM": "dumb",
@@ -255,28 +257,30 @@ def _sanitized_env() -> dict[str, str]:
 
 
 def run_help_probe(binary_path: Path, *, timeout: float = 1.5) -> str | None:
-    """Execute ``[binary_path, "--help"]`` safely and return cleaned output, or ``None``."""
+    """Execute ``[binary_path, "--help"]`` safely in an isolated temp dir."""
     proc: subprocess.Popen[bytes] | None = None
-    try:
-        proc = subprocess.Popen(
-            [str(binary_path), "--help"],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=_sanitized_env(),
-            start_new_session=True,
-        )
-        stdout, stderr = proc.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        if proc is not None:
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except OSError:
-                proc.kill()
-            proc.communicate()
-        return None
-    except OSError:
-        return None
+    with tempfile.TemporaryDirectory(prefix="sem-probe-") as sandbox_dir:
+        try:
+            proc = subprocess.Popen(
+                [str(binary_path), "--help"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                cwd=sandbox_dir,
+                env=_sanitized_env(sandbox_dir),
+                start_new_session=True,
+            )
+            stdout, stderr = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            if proc is not None:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except OSError:
+                    proc.kill()
+                proc.communicate()
+            return None
+        except OSError:
+            return None
 
     # Many tools (like 7z or Go/flag tools) exit 0 or 2 on --help and print to stdout or stderr.
     combined = stdout if len(stdout.strip()) >= len(stderr.strip()) else stderr
