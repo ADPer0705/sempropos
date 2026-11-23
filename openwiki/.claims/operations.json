@@ -1,0 +1,160 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:66f21a5f2a248355795e02e3314f516cd6e0c8f5a8d9447c14539663a7149d79",
+  "claims": [
+    {
+      "id": "claim_ed439db66738428b9f71f6735b1725f3",
+      "statement": "`sem install` verifies SQLite FTS5, optionally downloads a curated GGUF model, writes a default config if missing, force-rebuilds the index, notifies a running daemon, and warms the synthesis provider.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/cli.py",
+          "version": "repo-file-v1:sha256:3217a5c67e8792c474cc3c03978817033d23fb625f7413c2388c39943b07bd26"
+        }
+      ]
+    },
+    {
+      "id": "claim_23e376ed5c5e4cff886d7e4e8f4bc3dd",
+      "statement": "The suggested default configuration prefers local_gguf when a managed model and runtime exist, otherwise Ollama with the recommended model when available, otherwise tier0; embeddings default to fastembed_local.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/cli.py",
+          "version": "repo-file-v1:sha256:3217a5c67e8792c474cc3c03978817033d23fb625f7413c2388c39943b07bd26"
+        },
+        {
+          "resource": "repo://src/sempropos/config.py",
+          "version": "repo-file-v1:sha256:7fcff0f697c0c7f9d4d316ef8d919cae807c254a3bebd4089349e43417b7fd83"
+        }
+      ]
+    },
+    {
+      "id": "claim_acd994f3ff904c1085444170ab6ce893",
+      "statement": "`sem update` performs a non-forced index build that re-parses documentation, upserts changed tools, prunes uninstalled tools, and notifies a running daemon; it does not warm the synthesis provider.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/cli.py",
+          "version": "repo-file-v1:sha256:3217a5c67e8792c474cc3c03978817033d23fb625f7413c2388c39943b07bd26"
+        },
+        {
+          "resource": "repo://src/sempropos/index/builder.py",
+          "version": "repo-file-v1:sha256:e0b39838ecdb6499aca8ae1451c54410a54b28994963ab954e1e1b2bcc6218bc"
+        }
+      ]
+    },
+    {
+      "id": "claim_5dd686a8cc3740f483fcc6acf13eb28a",
+      "statement": "`sem doctor` reports index completeness, stored and expected revision, last-indexed time, staleness, corpus and coverage stats, source counts, unindexed PATH binaries, provider configuration, local GGUF runtime, and daemon status, exiting 1 when the index is incomplete.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/cli.py",
+          "version": "repo-file-v1:sha256:3217a5c67e8792c474cc3c03978817033d23fb625f7413c2388c39943b07bd26"
+        },
+        {
+          "resource": "repo://src/sempropos/service.py",
+          "version": "repo-file-v1:sha256:60b2fe26cee56876d643eac7805245a7c8ed4d5efb2910de3e01a8060868a3eb"
+        }
+      ]
+    },
+    {
+      "id": "claim_34f2413492144b94aa0088ac4becea55",
+      "statement": "`sem configure` interactively selects synthesis and embedding providers and models, defaulting synthesis to local_gguf then ollama then openai_compatible then tier0, and advises an update when embeddings change.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/cli.py",
+          "version": "repo-file-v1:sha256:3217a5c67e8792c474cc3c03978817033d23fb625f7413c2388c39943b07bd26"
+        }
+      ]
+    },
+    {
+      "id": "claim_df696f085b6c41378809433a890bdd06",
+      "statement": "Staleness compares last_indexed against the first existing package database among Debian, Arch, Fedora, RPM legacy, Alpine, Homebrew, and Nix paths plus user ~/.local/bin and ~/.cargo/bin, treating a missing marker as stale and requiring no watched paths to report not stale.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/index/staleness.py",
+          "version": "repo-file-v1:sha256:28afa101253744877b01c3fca7ebb1439bdf953997c523054fc7a4aeba88b6f6"
+        }
+      ]
+    },
+    {
+      "id": "claim_efe13d429e14434688375e8bb5eb702e",
+      "statement": "The query-time staleness warning is suppressed in porcelain mode and never blocks a query.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/cli.py",
+          "version": "repo-file-v1:sha256:3217a5c67e8792c474cc3c03978817033d23fb625f7413c2388c39943b07bd26"
+        }
+      ]
+    },
+    {
+      "id": "claim_bfcd6c4c6ce147f0b2d66351208888b8",
+      "statement": "Index incompatibility errors cover missing/incomplete metadata, revision mismatch, provider or model mismatch, and a missing tool embedding file, and instruct the user to run sem update.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/config.py",
+          "version": "repo-file-v1:sha256:7fcff0f697c0c7f9d4d316ef8d919cae807c254a3bebd4089349e43417b7fd83"
+        }
+      ]
+    },
+    {
+      "id": "claim_14eb4c9f6e734452abcdee3591c35e41",
+      "statement": "The FastEmbed model is cached under the application data directory's embeddings folder so subsequent runs can work offline.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/config.py",
+          "version": "repo-file-v1:sha256:7fcff0f697c0c7f9d4d316ef8d919cae807c254a3bebd4089349e43417b7fd83"
+        },
+        {
+          "resource": "repo://src/sempropos/intelligence/providers/_fastembed.py",
+          "version": "repo-file-v1:sha256:d0f258b23ac6d2d3cd758d3a3ba354ce7b4ae993d23bdad788b100b114aa162e"
+        }
+      ]
+    },
+    {
+      "id": "claim_9c1a44276af34111bb5796d254a86edb",
+      "statement": "`sem install` accepts --offline, --no-tldr, --no-help-probe, --skip-embeddings, and --model, while `sem update` accepts --full, --offline, --no-tldr, --no-help-probe, and --skip-embeddings.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/cli.py",
+          "version": "repo-file-v1:sha256:3217a5c67e8792c474cc3c03978817033d23fb625f7413c2388c39943b07bd26"
+        }
+      ]
+    },
+    {
+      "id": "claim_beb5294f0b1449c1b28c6118ac1597c0",
+      "statement": "`sem config show/get/set/wizard` print TOML, read one key, coerce and save one key, or run the interactive wizard; malformed keys exit 2, unknown keys exit 3, and unsupported providers exit 2.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/cli.py",
+          "version": "repo-file-v1:sha256:3217a5c67e8792c474cc3c03978817033d23fb625f7413c2388c39943b07bd26"
+        }
+      ]
+    },
+    {
+      "id": "claim_5f3f2cf2c8624f61a806b4d534414af1",
+      "statement": "`sem daemon status/start/stop/restart` inspect or control the Unix-socket daemon, and install, update, model, and config changes notify a running daemon to reload.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/cli.py",
+          "version": "repo-file-v1:sha256:3217a5c67e8792c474cc3c03978817033d23fb625f7413c2388c39943b07bd26"
+        },
+        {
+          "resource": "repo://src/sempropos/daemon/client.py",
+          "version": "repo-file-v1:sha256:d519e62f35c9a7777d65baebea7b0dbfc12cd9befb6bc09439b5a7335731f129"
+        }
+      ]
+    },
+    {
+      "id": "claim_d6e4a1cecd1d484baa2414bd279aa5c1",
+      "statement": "The curated model catalog has tiny, balanced, and quality tiers at roughly 398 MB, 986 MB, and 1930 MB, with minimum RAM of 2, 4, and 8 GB; downloads come from Hugging Face into the data directory.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/intelligence/models.py",
+          "version": "repo-file-v1:sha256:b86ac4fa6382b78affdf55c83ee93776c5dba07f61722ee456b97c5a2338f799"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.9.0",
+    "at": "2026-11-23T21:48:04.805Z"
+  }
+}

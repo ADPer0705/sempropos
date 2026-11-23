@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:777cd7a586fdddd6839c2cb14d71c03d141fbf44b3acd5bb40fee7ce19b263cb",
+  "claims": [
+    {
+      "id": "claim_7d3c399cf99e4f9ba6bef2d1703b068a",
+      "statement": "Insert, delete, and update triggers keep all four external-content FTS5 tables synchronized with their base tables.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/index/schema.py",
+          "version": "repo-file-v1:sha256:7fa15de7fc9befa4c5718b89f92eed2878dc0c22d0cb5512822bacdb42f4386c"
+        }
+      ]
+    },
+    {
+      "id": "claim_448514bf1b7f4a38a5c61d8d7ed13ae4",
+      "statement": "Connections use sqlite3.Row, enable foreign keys, set a busy timeout, use WAL and NORMAL synchronous mode for writes, commit on success, roll back on error, and initialize_database is idempotent because all statements use IF NOT EXISTS.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/index/schema.py",
+          "version": "repo-file-v1:sha256:7fa15de7fc9befa4c5718b89f92eed2878dc0c22d0cb5512822bacdb42f4386c"
+        }
+      ]
+    },
+    {
+      "id": "claim_e4f1cb535a3e4ebfafb9248a56db1842",
+      "statement": "Tool retrieval joins tools_fts to tools on rowid and orders by weighted bm25 rank, while flag retrieval scopes flags_fts by tool_id and falls back to the tool's first flags.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/retrieval/bm25.py",
+          "version": "repo-file-v1:sha256:85a1edd9a345e4b21aa3cfc8c4dab020d5a596c63991b331a5b1650faad546aa"
+        },
+        {
+          "resource": "repo://src/sempropos/retrieval/flag_retrieval.py",
+          "version": "repo-file-v1:sha256:508cfc2b5c544a49c0b09257f710d03150cfd8682a3804acf854279a9c0a5cff"
+        }
+      ]
+    },
+    {
+      "id": "claim_67f576756bf0421fb65faf13644952a9",
+      "statement": "The synopsis is stored on tools but is not included in tools_fts.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/index/schema.py",
+          "version": "repo-file-v1:sha256:7fa15de7fc9befa4c5718b89f92eed2878dc0c22d0cb5512822bacdb42f4386c"
+        }
+      ]
+    },
+    {
+      "id": "claim_4735735f2d58472ba23aaebae6f20b86",
+      "statement": "The SQLite schema version is 3 and the database stores tools, aliases, subcommands, flags, positionals, examples, see_also, and tool_sources tables with cascade deletes from parent rows.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/index/schema.py",
+          "version": "repo-file-v1:sha256:7fa15de7fc9befa4c5718b89f92eed2878dc0c22d0cb5512822bacdb42f4386c"
+        },
+        {
+          "resource": "repo://src/sempropos/model/spec.py",
+          "version": "repo-file-v1:sha256:edc8d06cea3a59ae4389ffc5a86d3947b4a731053c353e8d64d8d975fbad3682"
+        }
+      ]
+    },
+    {
+      "id": "claim_e2e169ab440c4c0ebf7185411cfa3efa",
+      "statement": "The four external-content FTS5 tables are tools_fts over name, aliases, summary, tags, subcommands, examples, and flags; flags_fts; subcommands_fts; and examples_fts, all using the porter unicode61 tokenizer.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/index/schema.py",
+          "version": "repo-file-v1:sha256:7fa15de7fc9befa4c5718b89f92eed2878dc0c22d0cb5512822bacdb42f4386c"
+        }
+      ]
+    },
+    {
+      "id": "claim_92a5578b35e940ec95c423f7ce06e1e0",
+      "statement": "Tool upserts are content-hash driven: an unchanged hash returns without touching children, while a changed hash replaces all child rows and signals that the tool needs re-embedding.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/index/repository.py",
+          "version": "repo-file-v1:sha256:e873c447748e2cdb744e5842d3af001c4edb6fb4c6eae5846c5d3a684e5b7aff"
+        }
+      ]
+    },
+    {
+      "id": "claim_acfc224f201b4eda9459ad87e5c6f8da",
+      "statement": "Only tool cards are embedded; aliases, subcommands, flags, and examples are ranked lexically against the query at retrieval time.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/index/builder.py",
+          "version": "repo-file-v1:sha256:e0b39838ecdb6499aca8ae1451c54410a54b28994963ab954e1e1b2bcc6218bc"
+        },
+        {
+          "resource": "repo://src/sempropos/index/repository.py",
+          "version": "repo-file-v1:sha256:e873c447748e2cdb744e5842d3af001c4edb6fb4c6eae5846c5d3a684e5b7aff"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.9.0",
+    "at": "2026-11-23T21:48:04.805Z"
+  }
+}

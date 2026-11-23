@@ -1,0 +1,162 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:b336992a1075f81397d9507c091ff1ad78ad3f783a022ca708a45c5641efa367",
+  "claims": [
+    {
+      "id": "claim_974e225b775b429188bbe2b86e8d7030",
+      "statement": "The project requires Python 3.11 or newer and uses uv for environment and dependency management.",
+      "evidence": [
+        {
+          "resource": "repo://CONTRIBUTING.md",
+          "version": "repo-file-v1:sha256:0a03ba7c87ee397a1733159742e71a219c81791a5d0ede9a8caaaf4b7fc3e569"
+        },
+        {
+          "resource": "repo://pyproject.toml",
+          "version": "repo-file-v1:sha256:12c1c8990c46455384e05cd0b28c165901f6529fa1cdba20f8c5215d58896383"
+        }
+      ]
+    },
+    {
+      "id": "claim_9a39d448ba2f4fdb947bc5cf54f2d88f",
+      "statement": "The dev dependency group contains build, mypy, pre-commit, pytest, pytest-cov, ruff, and twine.",
+      "evidence": [
+        {
+          "resource": "repo://pyproject.toml",
+          "version": "repo-file-v1:sha256:12c1c8990c46455384e05cd0b28c165901f6529fa1cdba20f8c5215d58896383"
+        }
+      ]
+    },
+    {
+      "id": "claim_f9dab4d5632c4ee798469366deab09a5",
+      "statement": "Make targets provide help, install-dev, format, lint, typecheck, test, eval, check-all, build, and clean; lint runs both ruff check and ruff format --check.",
+      "evidence": [
+        {
+          "resource": "repo://Makefile",
+          "version": "repo-file-v1:sha256:f544c0782017e9f2be984e68d8a28d29416bd2ac7340d2a656e8110b25d77eeb"
+        }
+      ]
+    },
+    {
+      "id": "claim_b23e83ce1b4a4d308cfe93627a138dfa",
+      "statement": "Ruff targets Python 3.11 with a 100-character line length, enables E/F/W/I/N/UP/B/SIM/C90, ignores E501/B008/B904, and limits McCabe complexity to 15.",
+      "evidence": [
+        {
+          "resource": "repo://pyproject.toml",
+          "version": "repo-file-v1:sha256:12c1c8990c46455384e05cd0b28c165901f6529fa1cdba20f8c5215d58896383"
+        }
+      ]
+    },
+    {
+      "id": "claim_cd8f9e6ce4394e1fb384173b560c6442",
+      "statement": "mypy runs in strict mode for Python 3.11 with ignore-without-code, redundant-expr, and truthy-bool error codes enabled.",
+      "evidence": [
+        {
+          "resource": "repo://pyproject.toml",
+          "version": "repo-file-v1:sha256:12c1c8990c46455384e05cd0b28c165901f6529fa1cdba20f8c5215d58896383"
+        }
+      ]
+    },
+    {
+      "id": "claim_ca830af2218042db8cc8eab581832e83",
+      "statement": "CI runs a quality matrix on Python 3.11, 3.12, and 3.13 with ruff check, ruff format --check, strict mypy, and pytest, plus a separate Python 3.12 build job that runs python -m build and twine check.",
+      "evidence": [
+        {
+          "resource": "repo://.github/workflows/ci.yml",
+          "version": "repo-file-v1:sha256:871b147e44e2c6f905bcf473a1c88fd93c11c6ffea372fe22d570a5910849ab0"
+        }
+      ]
+    },
+    {
+      "id": "claim_46f93d37b62f4784850cb9c6895660cc",
+      "statement": "Publishing triggers on a published GitHub release and uploads to PyPI through trusted publishing with the pypi environment.",
+      "evidence": [
+        {
+          "resource": "repo://.github/workflows/publish.yml",
+          "version": "repo-file-v1:sha256:d8749f9c23e0793f94b0c1d53addd102ecf1dbf0dc27b29bfa81a5f1d3271dd8"
+        }
+      ]
+    },
+    {
+      "id": "claim_7fc51371b3ec4d619863ab0e7bc6462a",
+      "statement": "The test policy requires mocked/offline provider tests by default and forbids requiring an API key for standard test runs.",
+      "evidence": [
+        {
+          "resource": "repo://CONTRIBUTING.md",
+          "version": "repo-file-v1:sha256:0a03ba7c87ee397a1733159742e71a219c81791a5d0ede9a8caaaf4b7fc3e569"
+        },
+        {
+          "resource": "repo://README.md",
+          "version": "repo-file-v1:sha256:d475bbabf86b15452a34570b69657c40378edc116d092295b2e3f28ccc73b405"
+        }
+      ]
+    },
+    {
+      "id": "claim_76828de170b64579b80a60a94cf29fe3",
+      "statement": "The roadmap marks v1.0.0 ingestion, retrieval, local intelligence, daemon, CLI, and test work as shipped and plans a llama-server downloader, an interactive TUI picker, macOS and BSD testing, custom user tool specs, and opt-in shell-history ranking.",
+      "evidence": [
+        {
+          "resource": "repo://ROADMAP.md",
+          "version": "repo-file-v1:sha256:9e371b10d5169d3cc711352dce920947e8a8c2054f3e830f717cdd690467a3b0"
+        }
+      ]
+    },
+    {
+      "id": "claim_b5a983b1a56e4a0396a94cfde7009417",
+      "statement": "The OpenWiki update workflow runs daily or manually, checks out full history, installs OpenWiki 0.9.0 with Mermaid dependencies, and runs openwiki code --update.",
+      "evidence": [
+        {
+          "resource": "repo://.github/workflows/openwiki-update.yml",
+          "version": "repo-file-v1:sha256:0c3567da8887d16fa5adfde23e9106efc87060d3495e473e9399d2e12fd6905e"
+        }
+      ]
+    },
+    {
+      "id": "claim_e7875e69b39d490bb503d89eb27ee01a",
+      "statement": "Pytest defaults to excluding the `live` marker and uses testpaths tests; the suite is organized into unit, integration, and a 37-query golden retrieval eval.",
+      "evidence": [
+        {
+          "resource": "repo://pyproject.toml",
+          "version": "repo-file-v1:sha256:12c1c8990c46455384e05cd0b28c165901f6529fa1cdba20f8c5215d58896383"
+        },
+        {
+          "resource": "repo://tests/eval/test_retrieval_benchmark.py",
+          "version": "repo-file-v1:sha256:e89b8db6b17ac7aae8125a9005186466fa16b362e55b88d3ff463a9735b609e8"
+        }
+      ]
+    },
+    {
+      "id": "claim_18064e2f10f14250a9ed79cd49d9e789",
+      "statement": "The `isolated_env` fixture points SEMPROPOS_DATA_DIR, SEMPROPOS_CONFIG_DIR, and SEMPROPOS_RUNTIME_DIR at a temporary tree so tests stay offline and isolated.",
+      "evidence": [
+        {
+          "resource": "repo://tests/conftest.py",
+          "version": "repo-file-v1:sha256:b0ffce9b54d955dc1acd870bc8b19f894022ff13fbd37ec1bd46370b7108cdda"
+        }
+      ]
+    },
+    {
+      "id": "claim_61e58238b492446fb5bd20ff927731ad",
+      "statement": "The publish workflow triggers on a published GitHub release, builds with python -m build, and uploads to PyPI through trusted publishing with OIDC.",
+      "evidence": [
+        {
+          "resource": "repo://.github/workflows/publish.yml",
+          "version": "repo-file-v1:sha256:d8749f9c23e0793f94b0c1d53addd102ecf1dbf0dc27b29bfa81a5f1d3271dd8"
+        }
+      ]
+    },
+    {
+      "id": "claim_e735609ecf4141b69ccf01a7a5853749",
+      "statement": "The OpenWiki update workflow runs daily at 08:00 UTC or manually, regenerates the wiki with openwiki code --update, removes transient run state, and opens a pull request.",
+      "evidence": [
+        {
+          "resource": "repo://.github/workflows/openwiki-update.yml",
+          "version": "repo-file-v1:sha256:0c3567da8887d16fa5adfde23e9106efc87060d3495e473e9399d2e12fd6905e"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.9.0",
+    "at": "2026-11-23T21:48:04.805Z"
+  }
+}

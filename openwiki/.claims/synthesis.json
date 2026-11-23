@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:57b8987558c413f231604e696afbc761b1de37a6d87e3cd3a998bf876f442f43",
+  "claims": [
+    {
+      "id": "claim_be6ad655ec4a43e0a09e58ad37ae756c",
+      "statement": "The intelligence layer defines provider-neutral StructuredPrompt, SynthesisResult, SynthesisOptions, and an exception hierarchy for unavailable, execution, and configuration failures.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/intelligence/contracts.py",
+          "version": "repo-file-v1:sha256:fa50cc4155235dcd2540801fddc5447e92f022937adc18faab30a766b7061904"
+        }
+      ]
+    },
+    {
+      "id": "claim_9849db48e4d14f2e853a1d5d1fe9bd65",
+      "statement": "`detect_synthesis_provider` returns only the configured provider when available and otherwise raises, so there is no automatic fallback chain between providers.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/intelligence/facade.py",
+          "version": "repo-file-v1:sha256:7909d16005bedbfe5fa079b03f587d0124cc37c32930130d78f152ccbe53da5e"
+        }
+      ]
+    },
+    {
+      "id": "claim_8a1f1063c12349a1b208611c2929bea6",
+      "statement": "`synthesize` honors a backend override while still using the configured role options, validates the provider, and dispatches to ollama, openai_compatible, or tier0.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/intelligence/facade.py",
+          "version": "repo-file-v1:sha256:7909d16005bedbfe5fa079b03f587d0124cc37c32930130d78f152ccbe53da5e"
+        }
+      ]
+    },
+    {
+      "id": "claim_6e0401d1e8fa445d825111a287c1116d",
+      "statement": "Prompt budgeting targets 600 words, starting with up to 5 tools, 6 flags per tool, and 4 examples per tool, and progressively removes examples, flags, then tools.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/intelligence/prompt.py",
+          "version": "repo-file-v1:sha256:c5edf52908fa95fe7b940d218c3a9c1c032d622ab251d7c0ce40b618397250ac"
+        }
+      ]
+    },
+    {
+      "id": "claim_29c8cc4dad7d46ae86233d71f92843b1",
+      "statement": "The system instruction forbids inventing tools outside the retrieved context, requires one runnable command, and defines NONE as the no-fit answer.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/intelligence/prompt.py",
+          "version": "repo-file-v1:sha256:c5edf52908fa95fe7b940d218c3a9c1c032d622ab251d7c0ce40b618397250ac"
+        }
+      ]
+    },
+    {
+      "id": "claim_19c730c7b21d48239766e7adc018b8ec",
+      "statement": "`extract_command` strips fences and prompts, rejects prose, usage echoes, overlong output, and NONE, and the CLI may perform one repair retry.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/cli.py",
+          "version": "repo-file-v1:sha256:09c9250d1f8149286b88526abbb7dcd7ead14dc69842e8ccba8ea96324dba8ff"
+        },
+        {
+          "resource": "repo://src/sempropos/intelligence/prompt.py",
+          "version": "repo-file-v1:sha256:c5edf52908fa95fe7b940d218c3a9c1c032d622ab251d7c0ce40b618397250ac"
+        }
+      ]
+    },
+    {
+      "id": "claim_2449cb73102b4673aed960660756f35f",
+      "statement": "Ollama availability is checked against 127.0.0.1:11434/api/tags, and synthesis passes think, temperature, num_predict, stop, and keep_alive, retrying without think when a model rejects it.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/intelligence/providers/_ollama.py",
+          "version": "repo-file-v1:sha256:6d4c0c2763e451eed63811f4eec35a53f3a15440c10070eb6d407b10cca2247f"
+        }
+      ]
+    },
+    {
+      "id": "claim_487092b937d0427eb8edb909f2b18a99",
+      "statement": "The OpenAI-compatible provider resolves a base URL and API key from config or environment, posts to /chat/completions, and reports HTTP and connection failures separately.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/intelligence/providers/_openai_compatible.py",
+          "version": "repo-file-v1:sha256:bbc70cff09b73d60514409b487852025f24d28b281cbd200ed87c119618ee29d"
+        }
+      ]
+    },
+    {
+      "id": "claim_43e1a5e0c0514171a9e4eee2c6a65720",
+      "statement": "FastEmbed caches one ONNX model per process in the application data directory, caps threads at four, and uses query_embed or passage_embed when the model supports them.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/intelligence/providers/_fastembed.py",
+          "version": "repo-file-v1:sha256:b9a5129766c231f71613addf4d1033220d00360d329cb04d8ba8d6f323879bd8"
+        }
+      ]
+    },
+    {
+      "id": "claim_ccbba40bc85c4b2aa02e34d9724c4836",
+      "statement": "tier0 is always available but returns an empty placeholder result that the CLI treats as no synthesis backend.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/cli.py",
+          "version": "repo-file-v1:sha256:09c9250d1f8149286b88526abbb7dcd7ead14dc69842e8ccba8ea96324dba8ff"
+        },
+        {
+          "resource": "repo://src/sempropos/intelligence/providers/_tier0.py",
+          "version": "repo-file-v1:sha256:2bd61685434c69879e37ac5073dd339cc39143b85bf09d0537a221279c5cd9c1"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.9.0",
+    "at": "2026-11-21T06:12:23.249Z"
+  }
+}

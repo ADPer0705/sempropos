@@ -1,0 +1,160 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:9e7d3a23a09b9414ba34bfc2ebe360de5d4ea3a70cd5d74df6e68130b531f4c6",
+  "claims": [
+    {
+      "id": "claim_6868db9d92cd4177a7f81754ecfbf22c",
+      "statement": "Data and config directories come from platformdirs and can be overridden with SEMPROPOS_DATA_DIR and SEMPROPOS_CONFIG_DIR.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/config.py",
+          "version": "repo-file-v1:sha256:7fcff0f697c0c7f9d4d316ef8d919cae807c254a3bebd4089349e43417b7fd83"
+        }
+      ]
+    },
+    {
+      "id": "claim_b98cf36c838148929f4fcbf5a278102b",
+      "statement": "The data directory holds index.db, the tool embedding matrix and id files, index.meta, last_indexed, and the tldr, model, embedding, and binary caches; config.toml lives in the config directory and legacy intelligence.toml is read only when config.toml is absent.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/config.py",
+          "version": "repo-file-v1:sha256:7fcff0f697c0c7f9d4d316ef8d919cae807c254a3bebd4089349e43417b7fd83"
+        }
+      ]
+    },
+    {
+      "id": "claim_2df4cd1709374842bbdf5fa309fa828a",
+      "statement": "Embedding and index format revisions are both 3 and are recorded in index.meta for compatibility checks.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/config.py",
+          "version": "repo-file-v1:sha256:7fcff0f697c0c7f9d4d316ef8d919cae807c254a3bebd4089349e43417b7fd83"
+        }
+      ]
+    },
+    {
+      "id": "claim_342b0a784dc843caa85dd68d13434a06",
+      "statement": "Supported synthesis providers are local_gguf, ollama, openai_compatible, and tier0; supported embedding providers are fastembed_local, ollama, and none, with tier0 and fastembed_local as defaults.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/config.py",
+          "version": "repo-file-v1:sha256:7fcff0f697c0c7f9d4d316ef8d919cae807c254a3bebd4089349e43417b7fd83"
+        }
+      ]
+    },
+    {
+      "id": "claim_fb9dcf66a1064abf940bee5241dd5258",
+      "statement": "SynthesisConfig carries provider, model, base URL, three key sources, timeout, think, temperature, max_tokens, keep_alive, stop, n_ctx, n_gpu_layers, and threads; EmbeddingConfig separately carries provider, model, base URL, timeout, and lazy_fallback.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/config.py",
+          "version": "repo-file-v1:sha256:7fcff0f697c0c7f9d4d316ef8d919cae807c254a3bebd4089349e43417b7fd83"
+        },
+        {
+          "resource": "repo://src/sempropos/intelligence/contracts.py",
+          "version": "repo-file-v1:sha256:25b2047b75769d288c798d86824ebd418f98075551a165f47f847ba7c97dd5c8"
+        }
+      ]
+    },
+    {
+      "id": "claim_ff40aaf3f3cd4e3bb566361d45544127",
+      "statement": "Configuration loading tolerates a missing or malformed TOML file, normalizes provider names, ignores wrongly typed fields, and falls back to role defaults.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/config.py",
+          "version": "repo-file-v1:sha256:7fcff0f697c0c7f9d4d316ef8d919cae807c254a3bebd4089349e43417b7fd83"
+        }
+      ]
+    },
+    {
+      "id": "claim_2386766f6d7c478a925dc210c5c30484",
+      "statement": "Saving configuration strips None values and writes atomically through atomic_write_text.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/config.py",
+          "version": "repo-file-v1:sha256:7fcff0f697c0c7f9d4d316ef8d919cae807c254a3bebd4089349e43417b7fd83"
+        },
+        {
+          "resource": "repo://src/sempropos/utils.py",
+          "version": "repo-file-v1:sha256:22de8059deb0d42f5767796e482288e5dee3f251d9d8dcdad34da42a7e862e50"
+        }
+      ]
+    },
+    {
+      "id": "claim_55db9c9a657c484d90fa81bc761725b4",
+      "statement": "Query-time index validation rejects a missing or unparsable metadata file, a present non-complete status, an index revision mismatch, a missing database, and an unsupported stored embedding provider; for non-none embeddings it also rejects revision, model, dimension, configured provider or model mismatches, and a missing tool embedding file.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/config.py",
+          "version": "repo-file-v1:sha256:7fcff0f697c0c7f9d4d316ef8d919cae807c254a3bebd4089349e43417b7fd83"
+        }
+      ]
+    },
+    {
+      "id": "claim_5fba225b61ed4613a89ad562b4334588",
+      "statement": "API keys resolve in order from the configured environment variable, then the system keyring under service sempropos, then plaintext configuration.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/intelligence/facade.py",
+          "version": "repo-file-v1:sha256:09f605241ec79f07c550f3cc18089572a5909b95941335a85c0484f97ed9d4c8"
+        },
+        {
+          "resource": "repo://src/sempropos/utils.py",
+          "version": "repo-file-v1:sha256:22de8059deb0d42f5767796e482288e5dee3f251d9d8dcdad34da42a7e862e50"
+        }
+      ]
+    },
+    {
+      "id": "claim_7a81d0e226b949199e94b943e97adefb",
+      "statement": "The OpenAI-compatible provider reads SEMPROPOS_OPENAI_BASE_URL and SEMPROPOS_OPENAI_API_KEY and defaults its base URL to https://api.openai.com/v1 when a key is present.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/intelligence/providers/_openai_compatible.py",
+          "version": "repo-file-v1:sha256:4a8b2ca11fff47d1311b65c59e8a1d629f862e38419ca48016c1a3efc8e12acd"
+        }
+      ]
+    },
+    {
+      "id": "claim_93ce51ee0f644f8da8a370c1d2f9f314",
+      "statement": "Runtime files live under SEMPROPOS_RUNTIME_DIR, then <data>/run when SEMPROPOS_DATA_DIR is set, then $XDG_RUNTIME_DIR/sempropos, and otherwise <data>/run; the daemon uses sem.sock, sem.pid, and sem.lock.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/config.py",
+          "version": "repo-file-v1:sha256:7fcff0f697c0c7f9d4d316ef8d919cae807c254a3bebd4089349e43417b7fd83"
+        },
+        {
+          "resource": "repo://src/sempropos/daemon/client.py",
+          "version": "repo-file-v1:sha256:d519e62f35c9a7777d65baebea7b0dbfc12cd9befb6bc09439b5a7335731f129"
+        }
+      ]
+    },
+    {
+      "id": "claim_e23cbc91e4984eb8a23b635efa3309de",
+      "statement": "The configuration has daemon and indexing sections controlling daemon enablement, auto-start, idle timeout, tldr and completion ingestion, --help probing, and the help probe timeout.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/config.py",
+          "version": "repo-file-v1:sha256:7fcff0f697c0c7f9d4d316ef8d919cae807c254a3bebd4089349e43417b7fd83"
+        },
+        {
+          "resource": "repo://src/sempropos/index/builder.py",
+          "version": "repo-file-v1:sha256:e0b39838ecdb6499aca8ae1451c54410a54b28994963ab954e1e1b2bcc6218bc"
+        }
+      ]
+    },
+    {
+      "id": "claim_e56c3b08ab53429a97e6773c266d6aae",
+      "statement": "The curated local GGUF catalog provides tiny, balanced, and quality tiers with model ids qwen2.5-coder-0.5b, qwen2.5-coder-1.5b, and qwen2.5-coder-3b.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/intelligence/models.py",
+          "version": "repo-file-v1:sha256:b86ac4fa6382b78affdf55c83ee93776c5dba07f61722ee456b97c5a2338f799"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.9.0",
+    "at": "2026-11-23T21:48:04.805Z"
+  }
+}

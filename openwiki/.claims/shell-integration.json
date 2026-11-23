@@ -1,0 +1,126 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:f4b235564f20034d86f07947c0c0c8a825d0f140f24a0e590d58605f258a65eb",
+  "claims": [
+    {
+      "id": "claim_1132fcf27e2e4dcd9f7c722398f4514f",
+      "statement": "Shell integration is available for zsh, bash, and fish, and `sem init` prints the snippet verbatim for eval or sourcing with tab completion rules included.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/cli.py",
+          "version": "repo-file-v1:sha256:3217a5c67e8792c474cc3c03978817033d23fb625f7413c2388c39943b07bd26"
+        },
+        {
+          "resource": "repo://src/sempropos/shell.py",
+          "version": "repo-file-v1:sha256:12c017313720bc236c37d1ac3a9eb35244f3e0fe60522406c2e51c54de04cb64"
+        }
+      ]
+    },
+    {
+      "id": "claim_647f9fa059c04cbfb7b513f0fe03de0b",
+      "statement": "Every widget binds Ctrl+S to a function that reads the current line, calls sem with --porcelain, and replaces the line only when a non-empty command is returned.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/shell.py",
+          "version": "repo-file-v1:sha256:12c017313720bc236c37d1ac3a9eb35244f3e0fe60522406c2e51c54de04cb64"
+        }
+      ]
+    },
+    {
+      "id": "claim_dbaa186e6b5d421f89ccc44fb74b2806",
+      "statement": "The widgets run stty -ixon so the terminal does not consume Ctrl+S as XOFF.",
+      "evidence": [
+        {
+          "resource": "repo://README.md",
+          "version": "repo-file-v1:sha256:d475bbabf86b15452a34570b69657c40378edc116d092295b2e3f28ccc73b405"
+        },
+        {
+          "resource": "repo://src/sempropos/shell.py",
+          "version": "repo-file-v1:sha256:12c017313720bc236c37d1ac3a9eb35244f3e0fe60522406c2e51c54de04cb64"
+        }
+      ]
+    },
+    {
+      "id": "claim_f91850de57ed4db686ef697deb9d2346",
+      "statement": "The porcelain contract requires the command alone on stdout, diagnostics on stderr, and a non-zero exit on failure.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/cli.py",
+          "version": "repo-file-v1:sha256:3217a5c67e8792c474cc3c03978817033d23fb625f7413c2388c39943b07bd26"
+        },
+        {
+          "resource": "repo://src/sempropos/shell.py",
+          "version": "repo-file-v1:sha256:12c017313720bc236c37d1ac3a9eb35244f3e0fe60522406c2e51c54de04cb64"
+        }
+      ]
+    },
+    {
+      "id": "claim_6d433e7d5cc9465b86131c0acf1756a1",
+      "statement": "The fish widget passes -- before the query so natural-language text is not parsed as options.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/shell.py",
+          "version": "repo-file-v1:sha256:12c017313720bc236c37d1ac3a9eb35244f3e0fe60522406c2e51c54de04cb64"
+        }
+      ]
+    },
+    {
+      "id": "claim_7974bfb2ab254d0d90181dc913948eaf",
+      "statement": "Generated commands are inserted into the prompt for review and are never executed by the integration.",
+      "evidence": [
+        {
+          "resource": "repo://README.md",
+          "version": "repo-file-v1:sha256:d475bbabf86b15452a34570b69657c40378edc116d092295b2e3f28ccc73b405"
+        },
+        {
+          "resource": "repo://src/sempropos/shell.py",
+          "version": "repo-file-v1:sha256:12c017313720bc236c37d1ac3a9eb35244f3e0fe60522406c2e51c54de04cb64"
+        }
+      ]
+    },
+    {
+      "id": "claim_2b09c7276e334f0f8b5a58eb1210f804",
+      "statement": "`sem init` reports an unsupported shell with the supported list and exits 2.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/cli.py",
+          "version": "repo-file-v1:sha256:3217a5c67e8792c474cc3c03978817033d23fb625f7413c2388c39943b07bd26"
+        }
+      ]
+    },
+    {
+      "id": "claim_317f01f5d196423284b0faf9d6ef2f19",
+      "statement": "zsh displays the first stderr line from a failed transform via zle -M, while bash and fish discard diagnostics and leave the line unchanged.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/shell.py",
+          "version": "repo-file-v1:sha256:12c017313720bc236c37d1ac3a9eb35244f3e0fe60522406c2e51c54de04cb64"
+        }
+      ]
+    },
+    {
+      "id": "claim_fe0bbc5117b446a5adbb8a946113fbcc",
+      "statement": "All three snippets register command completion and complete indexed tool names after `show` or `doc` using `sem complete-tools`.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/shell.py",
+          "version": "repo-file-v1:sha256:12c017313720bc236c37d1ac3a9eb35244f3e0fe60522406c2e51c54de04cb64"
+        }
+      ]
+    },
+    {
+      "id": "claim_4d0ac3aca62848e5a4c7bbf183fe4dfb",
+      "statement": "zsh, bash, and fish each call `sem --porcelain -- <query>` so the natural-language line is not parsed as options.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/shell.py",
+          "version": "repo-file-v1:sha256:12c017313720bc236c37d1ac3a9eb35244f3e0fe60522406c2e51c54de04cb64"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.9.0",
+    "at": "2026-11-23T21:48:04.805Z"
+  }
+}

@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:4f3c9885c384c81e324e4eea66b49b18fe014b7baee4770c59b3ab9a919119b8",
+  "claims": [
+    {
+      "id": "claim_6a25b52e172244a0a85133390c7ab4e7",
+      "statement": "The Typer app allows extra args and unknown options and invokes its callback without a subcommand, which lets a bare sentence reach the query handler.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/cli.py",
+          "version": "repo-file-v1:sha256:3217a5c67e8792c474cc3c03978817033d23fb625f7413c2388c39943b07bd26"
+        }
+      ]
+    },
+    {
+      "id": "claim_b4f8e98d24e243c2854e1d3a53e7cfc0",
+      "statement": "`_normalize_argv` prepends `ask` when the first non-option token is not a registered command or group, skipping values for `--backend`, `--tool`, `-t`, `--alternatives`, and `-n`, and it also routes extra words after zero-argument commands and more than two positional words after `show` to `ask`.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/cli.py",
+          "version": "repo-file-v1:sha256:3217a5c67e8792c474cc3c03978817033d23fb625f7413c2388c39943b07bd26"
+        }
+      ]
+    },
+    {
+      "id": "claim_8095eb7e648b434f9155535dd9a41320",
+      "statement": "The ask-related options, including `--backend`, `--porcelain`, `--json`, `--no-daemon`, `--tool`, `--explain`, `--alternatives`, and `--copy`, are declared on both the root callback and the `ask` command so they work before or after the inserted subcommand.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/cli.py",
+          "version": "repo-file-v1:sha256:3217a5c67e8792c474cc3c03978817033d23fb625f7413c2388c39943b07bd26"
+        }
+      ]
+    },
+    {
+      "id": "claim_58c6a2c39ce94595bc452983465aab59",
+      "statement": "Interactive ask output renders the command in a Rich panel colored by safety level, and fallback output renders up to four structured ToolSpec cards containing the summary, up to three subcommands, up to four flags, and up to three examples per tool.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/cli.py",
+          "version": "repo-file-v1:sha256:3217a5c67e8792c474cc3c03978817033d23fb625f7413c2388c39943b07bd26"
+        }
+      ]
+    },
+    {
+      "id": "claim_cb67226278ab42358e7c576d285bf0e7",
+      "statement": "In porcelain mode only the command is written to stdout and diagnostics go to stderr; index or no-candidate failures exit 3 and other synthesis failures exit 1.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/cli.py",
+          "version": "repo-file-v1:sha256:3217a5c67e8792c474cc3c03978817033d23fb625f7413c2388c39943b07bd26"
+        },
+        {
+          "resource": "repo://src/sempropos/shell.py",
+          "version": "repo-file-v1:sha256:12c017313720bc236c37d1ac3a9eb35244f3e0fe60522406c2e51c54de04cb64"
+        }
+      ]
+    },
+    {
+      "id": "claim_ea6fc5b91aee4a7b8efbde3837db9759",
+      "statement": "The interactive ask path exits 0 after a tier0 card fallback but exits 1 after non-tier0 fallback cards; usage errors exit 2 and not-found or index errors exit 3.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/cli.py",
+          "version": "repo-file-v1:sha256:3217a5c67e8792c474cc3c03978817033d23fb625f7413c2388c39943b07bd26"
+        }
+      ]
+    },
+    {
+      "id": "claim_dcd1a1c330b340a7a30d8b5204567fda",
+      "statement": "The repair retry preserves an explicit `none` answer by returning no command rather than asking again.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/intelligence/prompt.py",
+          "version": "repo-file-v1:sha256:309a3dd0dcefceab19edd749e2825a43cf23a31787580a157416ca167849e3b9"
+        },
+        {
+          "resource": "repo://src/sempropos/service.py",
+          "version": "repo-file-v1:sha256:60b2fe26cee56876d643eac7805245a7c8ed4d5efb2910de3e01a8060868a3eb"
+        }
+      ]
+    },
+    {
+      "id": "claim_afc2da32270c4b80b17a970f0d5f8f3e",
+      "statement": "The CLI exposes `show`/`doc`, `search`/`apropos`, `doctor`/`check`, `model`, `daemon`, `config`, `configure`, `providers`, `init`, and `version`, with hidden aliases for the documented compatibility names.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/cli.py",
+          "version": "repo-file-v1:sha256:3217a5c67e8792c474cc3c03978817033d23fb625f7413c2388c39943b07bd26"
+        }
+      ]
+    },
+    {
+      "id": "claim_9894476786304377b92290949656ec3d",
+      "statement": "`sem show` supports keyword flag filtering, `--all-flags`, `--examples`, `--json`, and `--no-daemon`, while `sem search` supports a result limit, category filter, `--json`, and `--no-daemon`.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/cli.py",
+          "version": "repo-file-v1:sha256:3217a5c67e8792c474cc3c03978817033d23fb625f7413c2388c39943b07bd26"
+        }
+      ]
+    },
+    {
+      "id": "claim_f003bf2218c94a46886971176c1d8d2e",
+      "statement": "`sem search` runs BM25 always but invokes semantic recall only when embeddings are already warm or BM25 returned no results, so it does not make a synthesis LLM call.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/service.py",
+          "version": "repo-file-v1:sha256:60b2fe26cee56876d643eac7805245a7c8ed4d5efb2910de3e01a8060868a3eb"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.9.0",
+    "at": "2026-11-23T21:48:04.805Z"
+  }
+}

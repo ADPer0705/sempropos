@@ -1,0 +1,124 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:c6dd8abf23a96fec9d2db61254300292ce2290a2232fb7f8b40128d4474c2168",
+  "claims": [
+    {
+      "id": "claim_83f8c429b9584221b443ca29272e3590",
+      "statement": "sempropos is an offline-first CLI that turns a natural-language task into a shell command using local man pages and a local model.",
+      "evidence": [
+        {
+          "resource": "repo://README.md",
+          "version": "repo-file-v1:sha256:aa987750cfed4743b005ee89f05a57024f4c24e7b6cc36752adac7193672f83d"
+        },
+        {
+          "resource": "repo://pyproject.toml",
+          "version": "repo-file-v1:sha256:0445d3ca5100b6ee32087b58e7cdf7d07273b357f24384c39b216187692b58a6"
+        }
+      ]
+    },
+    {
+      "id": "claim_2f4413e9ecaa463cafda51d9c9a37588",
+      "statement": "The package requires Python 3.11 or newer and checks for man and SQLite FTS5 during install.",
+      "evidence": [
+        {
+          "resource": "repo://pyproject.toml",
+          "version": "repo-file-v1:sha256:0445d3ca5100b6ee32087b58e7cdf7d07273b357f24384c39b216187692b58a6"
+        },
+        {
+          "resource": "repo://src/sempropos/cli.py",
+          "version": "repo-file-v1:sha256:09c9250d1f8149286b88526abbb7dcd7ead14dc69842e8ccba8ea96324dba8ff"
+        }
+      ]
+    },
+    {
+      "id": "claim_d71daf5349e2468a8db8741d4edbcc74",
+      "statement": "Installation is `uv tool install sempropos` followed by `sem install`, which writes config, downloads the embedding model, builds the index, and warms synthesis.",
+      "evidence": [
+        {
+          "resource": "repo://README.md",
+          "version": "repo-file-v1:sha256:aa987750cfed4743b005ee89f05a57024f4c24e7b6cc36752adac7193672f83d"
+        },
+        {
+          "resource": "repo://src/sempropos/cli.py",
+          "version": "repo-file-v1:sha256:09c9250d1f8149286b88526abbb7dcd7ead14dc69842e8ccba8ea96324dba8ff"
+        }
+      ]
+    },
+    {
+      "id": "claim_b48d6376eaf049abb7289c095ac273da",
+      "statement": "A bare natural-language query is routed to `ask`, and `--porcelain` restricts stdout to the command for scripting and shell widgets.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/cli.py",
+          "version": "repo-file-v1:sha256:09c9250d1f8149286b88526abbb7dcd7ead14dc69842e8ccba8ea96324dba8ff"
+        }
+      ]
+    },
+    {
+      "id": "claim_6c83e771ecb24efd910149134ab611ac",
+      "statement": "Shell integration is installed with `eval \"$(sem init zsh)\"` (or bash) or `sem init fish | source`, binding Ctrl+S to transform the current line.",
+      "evidence": [
+        {
+          "resource": "repo://README.md",
+          "version": "repo-file-v1:sha256:aa987750cfed4743b005ee89f05a57024f4c24e7b6cc36752adac7193672f83d"
+        },
+        {
+          "resource": "repo://src/sempropos/shell.py",
+          "version": "repo-file-v1:sha256:193797d76789e0d91d06aec8395cae24f07b838e3986a2db6b31e9176d4beb79"
+        }
+      ]
+    },
+    {
+      "id": "claim_490095726e6d4e4f90bde705eb64cc08",
+      "statement": "Management commands include install, update, check, configure, providers, init, and version.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/cli.py",
+          "version": "repo-file-v1:sha256:09c9250d1f8149286b88526abbb7dcd7ead14dc69842e8ccba8ea96324dba8ff"
+        }
+      ]
+    },
+    {
+      "id": "claim_a2c98cdd3dc44d1f94d87a40f742fcfe",
+      "statement": "Retrieval is BM25-primary with semantic recall, and the top tools, flags, and examples are sent to the synthesis backend; without a backend the man pages are displayed.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/cli.py",
+          "version": "repo-file-v1:sha256:09c9250d1f8149286b88526abbb7dcd7ead14dc69842e8ccba8ea96324dba8ff"
+        },
+        {
+          "resource": "repo://src/sempropos/retrieval/fusion.py",
+          "version": "repo-file-v1:sha256:2cc569b68f5d7b1d81dd71e0a8cd7f3275b08e743f7ff0743870b958e14080fa"
+        }
+      ]
+    },
+    {
+      "id": "claim_8b07c83287e24345bc95355e9fcf2b11",
+      "statement": "Data and config locations can be overridden with SEMPROPOS_DATA_DIR and SEMPROPOS_CONFIG_DIR, and the data directory stores the index, embeddings, metadata, timestamp, and model cache.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/config.py",
+          "version": "repo-file-v1:sha256:fa051c6ad4b9fdc3082e851090135047c13718673625baa6bdefaa6f917b076d"
+        }
+      ]
+    },
+    {
+      "id": "claim_0288b8fad9e74aaf8fc3904ca8afddef",
+      "statement": "Retrieval and embedding run locally; network activity is limited to the optional embedding-model download and any configured remote synthesis endpoint.",
+      "evidence": [
+        {
+          "resource": "repo://README.md",
+          "version": "repo-file-v1:sha256:aa987750cfed4743b005ee89f05a57024f4c24e7b6cc36752adac7193672f83d"
+        },
+        {
+          "resource": "repo://src/sempropos/intelligence/providers/_openai_compatible.py",
+          "version": "repo-file-v1:sha256:bbc70cff09b73d60514409b487852025f24d28b281cbd200ed87c119618ee29d"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.9.0",
+    "at": "2026-11-21T06:12:23.249Z"
+  }
+}

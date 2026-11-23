@@ -1,0 +1,176 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:bd5246e44386a08370c6e67b2837d101b891ba0224502549e7f356a7ee771824",
+  "claims": [
+    {
+      "id": "claim_2905d897a062499a882eb0d9a4292fce",
+      "statement": "`build_index` forces a full rebuild when `force` is true, the stored `index_revision` differs from `INDEX_REVISION`, or the database `user_version` differs, deleting the database, its WAL/SHM files, embedding files, metadata, and last-indexed marker first.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/config.py",
+          "version": "repo-file-v1:sha256:7fcff0f697c0c7f9d4d316ef8d919cae807c254a3bebd4089349e43417b7fd83"
+        },
+        {
+          "resource": "repo://src/sempropos/index/builder.py",
+          "version": "repo-file-v1:sha256:e0b39838ecdb6499aca8ae1451c54410a54b28994963ab954e1e1b2bcc6218bc"
+        }
+      ]
+    },
+    {
+      "id": "claim_422b85f2eb5443b3b71684e89a4c1ec5",
+      "statement": "Flag extraction merges option-bearing sections including OPTION, FLAG, SWITCH, EXPRESSION, PREDICATE, TEST, ACTION, MODIFIER, ARGUMENT, PRIMARY, OPERATOR, PARAMETER, and KEY plus DESCRIPTION, recognizes short/long forms and value hints, caps descriptions at 420 characters, and limits a tool to 400 flags.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/sources/roff_parser.py",
+          "version": "repo-file-v1:sha256:924bff8ef780be32375052bca26249e4cedfc6f7f9551c1b7f08b0a068a7deb4"
+        }
+      ]
+    },
+    {
+      "id": "claim_c25fa9ce3cc14b998aa980e0087e256a",
+      "statement": "Man-page extraction runs concurrently in a sliding window of at most eight workers and twice that many in-flight futures, and database inserts commit every 100 tools.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/index/builder.py",
+          "version": "repo-file-v1:sha256:e0b39838ecdb6499aca8ae1451c54410a54b28994963ab954e1e1b2bcc6218bc"
+        },
+        {
+          "resource": "repo://src/sempropos/sources/man.py",
+          "version": "repo-file-v1:sha256:570b56a56f72f15cfb0a43e6ac4574da6ca3a2a98d0bee959c3708106c51a90a"
+        }
+      ]
+    },
+    {
+      "id": "claim_a82a82e03dcc4c08a1bb639ed8dbe4e0",
+      "statement": "Only tool cards are embedded; vectors are reused per tool_id when the id is still present and unchanged, and new or content-modified ids are re-embedded and L2-normalized.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/index/builder.py",
+          "version": "repo-file-v1:sha256:e0b39838ecdb6499aca8ae1451c54410a54b28994963ab954e1e1b2bcc6218bc"
+        }
+      ]
+    },
+    {
+      "id": "claim_2ab6884b48bc4d7f9bb3a3c77364e1e6",
+      "statement": "Embedding streams 64-text batches, truncates each text to 2,200 characters, writes a temporary npy file, fsyncs it, and replaces the destination atomically.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/index/builder.py",
+          "version": "repo-file-v1:sha256:e0b39838ecdb6499aca8ae1451c54410a54b28994963ab954e1e1b2bcc6218bc"
+        }
+      ]
+    },
+    {
+      "id": "claim_63d8e1c708bf4597b2410864301e3985",
+      "statement": "Embeddings are rebuilt when the stored provider, model, or embedding revision differs from the current configuration.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/config.py",
+          "version": "repo-file-v1:sha256:7fcff0f697c0c7f9d4d316ef8d919cae807c254a3bebd4089349e43417b7fd83"
+        },
+        {
+          "resource": "repo://src/sempropos/index/builder.py",
+          "version": "repo-file-v1:sha256:e0b39838ecdb6499aca8ae1451c54410a54b28994963ab954e1e1b2bcc6218bc"
+        }
+      ]
+    },
+    {
+      "id": "claim_e6905734e854498ea1085a84523a77f0",
+      "statement": "`last_indexed` and `index.meta` are written only after ingestion and embedding succeed, so an interrupted build is not advertised as complete.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/config.py",
+          "version": "repo-file-v1:sha256:7fcff0f697c0c7f9d4d316ef8d919cae807c254a3bebd4089349e43417b7fd83"
+        },
+        {
+          "resource": "repo://src/sempropos/index/builder.py",
+          "version": "repo-file-v1:sha256:e0b39838ecdb6499aca8ae1451c54410a54b28994963ab954e1e1b2bcc6218bc"
+        }
+      ]
+    },
+    {
+      "id": "claim_57bc1da401304c0185e01b4bf02b438e",
+      "statement": "Tool discovery scans $PATH once for executable files, de-duplicates directories, and maps symlink aliases to canonical binaries except for multi-call dispatchers and interpreters.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/sources/discovery.py",
+          "version": "repo-file-v1:sha256:8e9630508d119ddca0cf3d5039d10e334024af696adfc5d23cfe5552628eb282"
+        },
+        {
+          "resource": "repo://src/sempropos/sources/merger.py",
+          "version": "repo-file-v1:sha256:4abbeebe5e1daa6c8afdf05485d3ad5a55ff728ce0fd42683a911e8cce8fc4d5"
+        }
+      ]
+    },
+    {
+      "id": "claim_74db4ef2d88d44fdac38aae00bedf98b",
+      "statement": "Man pages are discovered by scanning man1 and man8 directories for compressed roff files rather than by invoking man -k, and short .so redirects are followed up to four levels.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/sources/man.py",
+          "version": "repo-file-v1:sha256:570b56a56f72f15cfb0a43e6ac4574da6ca3a2a98d0bee959c3708106c51a90a"
+        },
+        {
+          "resource": "repo://src/sempropos/sources/roff_parser.py",
+          "version": "repo-file-v1:sha256:924bff8ef780be32375052bca26249e4cedfc6f7f9551c1b7f08b0a068a7deb4"
+        }
+      ]
+    },
+    {
+      "id": "claim_096f2bb0ec464a1e893cd3936fb95d97",
+      "statement": "A low-confidence roff parse of a page over 40 lines with no flags or synopsis falls back to a clean wide man render, which is accepted only when it yields more flags or a missing synopsis.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/sources/man.py",
+          "version": "repo-file-v1:sha256:570b56a56f72f15cfb0a43e6ac4574da6ca3a2a98d0bee959c3708106c51a90a"
+        },
+        {
+          "resource": "repo://src/sempropos/sources/roff_parser.py",
+          "version": "repo-file-v1:sha256:924bff8ef780be32375052bca26249e4cedfc6f7f9551c1b7f08b0a068a7deb4"
+        }
+      ]
+    },
+    {
+      "id": "claim_2b7ff429ef3b416289ff44414419f588",
+      "statement": "Every build parses all discovered documentation, but repository upserts skip unchanged content hashes, prune tools no longer installed, and report changed tool ids for re-embedding.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/index/builder.py",
+          "version": "repo-file-v1:sha256:e0b39838ecdb6499aca8ae1451c54410a54b28994963ab954e1e1b2bcc6218bc"
+        },
+        {
+          "resource": "repo://src/sempropos/index/repository.py",
+          "version": "repo-file-v1:sha256:e873c447748e2cdb744e5842d3af001c4edb6fb4c6eae5846c5d3a684e5b7aff"
+        }
+      ]
+    },
+    {
+      "id": "claim_82801eeac087476f84b1466f9f7d41dc",
+      "statement": "Fragments merge with a deterministic source priority of man_roff, completion_fish, help_probe, completion_zsh, man_text, then tldr, and examples are ordered tldr first and deduplicated.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/sources/merger.py",
+          "version": "repo-file-v1:sha256:4abbeebe5e1daa6c8afdf05485d3ad5a55ff728ce0fd42683a911e8cce8fc4d5"
+        }
+      ]
+    },
+    {
+      "id": "claim_abf668b691b04c71a358b4301fc414fd",
+      "statement": "Safe --help probing targets binaries missing rich man documentation, skips denylisted or setuid/setgid binaries, and runs with a sanitized environment and hard timeout.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/index/builder.py",
+          "version": "repo-file-v1:sha256:e0b39838ecdb6499aca8ae1451c54410a54b28994963ab954e1e1b2bcc6218bc"
+        },
+        {
+          "resource": "repo://src/sempropos/sources/help_probe.py",
+          "version": "repo-file-v1:sha256:1ef6372e004de4f14ea4351f8e766fa57cd594b318a59e83c9ef22d8d56a0c2b"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.9.0",
+    "at": "2026-11-23T21:48:04.805Z"
+  }
+}

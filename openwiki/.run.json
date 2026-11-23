@@ -1,0 +1,331 @@
+{
+  "schemaVersion": 1,
+  "runId": "66ee490f-2f9e-426b-901c-afa81e80b304",
+  "mode": "update",
+  "phase": "generating",
+  "startedAt": "2026-11-23T21:48:04.805Z",
+  "language": "en",
+  "languageChanged": false,
+  "requiredRewritePages": [],
+  "initialPages": [
+    "/openwiki/architecture.md",
+    "/openwiki/cli.md",
+    "/openwiki/configuration.md",
+    "/openwiki/development.md",
+    "/openwiki/index-schema.md",
+    "/openwiki/indexing.md",
+    "/openwiki/operations.md",
+    "/openwiki/quickstart.md",
+    "/openwiki/retrieval.md",
+    "/openwiki/shell-integration.md",
+    "/openwiki/synthesis.md"
+  ],
+  "sourceFingerprint": "sha256:2c467d3c6b96a956a259f49a660db041176d61da967a7b16af422308fae834ac",
+  "targetGitHead": "dd47f1d6a9852c9e3b35dc15c091025ae086079f",
+  "actor": {
+    "producerActor": "opencode",
+    "metadataModel": "host-agent/opencode"
+  },
+  "previousLastUpdate": {
+    "updatedAt": "2026-11-21T06:20:04.922Z",
+    "command": "init",
+    "gitHead": "65fb22928476a903cb8069296882a7fea086ab5d",
+    "model": "host-agent/opencode",
+    "status": "complete",
+    "language": "en"
+  },
+  "baseGitHead": "65fb22928476a903cb8069296882a7fea086ab5d",
+  "beforeContentSnapshot": "04f3262d608ecb040f519ad684f1b0a2e47bc4b20c558fa4e2dce46f0f4c88b8",
+  "preparedWiki": {
+    "generatedProvenance": [
+      {
+        "page": "/openwiki/architecture.md",
+        "bodyHash": "fedfacb14e4404106fb1ec02ed63cae1021ce9a3286bc63050e6d4719af84939",
+        "generated": {
+          "by": "opencode",
+          "at": "2026-11-21T06:12:23.249Z"
+        }
+      },
+      {
+        "page": "/openwiki/cli.md",
+        "bodyHash": "48d63aeea840114530862186e88d338b433864bba0654e2c208ba47e862752c3",
+        "generated": {
+          "by": "opencode",
+          "at": "2026-11-21T06:12:23.249Z"
+        }
+      },
+      {
+        "page": "/openwiki/configuration.md",
+        "bodyHash": "1617bb6f1f405130173cb99a10210d951a21e413b3728adb9e227dc141b0fa5c",
+        "generated": {
+          "by": "opencode",
+          "at": "2026-11-21T06:12:23.249Z"
+        }
+      },
+      {
+        "page": "/openwiki/development.md",
+        "bodyHash": "72ec6dea05ab26e2988ba55959249039e4920269392813344029d9f17e79c195",
+        "generated": {
+          "by": "opencode",
+          "at": "2026-11-21T06:12:23.249Z"
+        }
+      },
+      {
+        "page": "/openwiki/index-schema.md",
+        "bodyHash": "dd224fb0623030566deb20f3105ec41e4eb5f4ed3cfbc386209c42019a7fa1b3",
+        "generated": {
+          "by": "opencode",
+          "at": "2026-11-21T06:12:23.249Z"
+        }
+      },
+      {
+        "page": "/openwiki/indexing.md",
+        "bodyHash": "38cf1c1dd36c2e78e17cd97bcac39169ea9073d5d9914606830427c867dee386",
+        "generated": {
+          "by": "opencode",
+          "at": "2026-11-21T06:12:23.249Z"
+        }
+      },
+      {
+        "page": "/openwiki/operations.md",
+        "bodyHash": "3b7c6cf8c8fb5caadfa170534a93f2736a7fa5df4b6d7ead67db5e8f958c6485",
+        "generated": {
+          "by": "opencode",
+          "at": "2026-11-21T06:12:23.249Z"
+        }
+      },
+      {
+        "page": "/openwiki/quickstart.md",
+        "bodyHash": "006ee9a9c8c94a6008f63103a8d326e2048a09864013d437a7f67f9956920784",
+        "generated": {
+          "by": "opencode",
+          "at": "2026-11-21T06:12:23.249Z"
+        }
+      },
+      {
+        "page": "/openwiki/retrieval.md",
+        "bodyHash": "905edc41581d9ce0b4c98216a993049d5cf14b9988984204feceeb4fb7acaa0b",
+        "generated": {
+          "by": "opencode",
+          "at": "2026-11-21T06:12:23.249Z"
+        }
+      },
+      {
+        "page": "/openwiki/shell-integration.md",
+        "bodyHash": "be890263769944314a4d9dfa012447dd14ba6fbfef3114c74c26b28b0edef096",
+        "generated": {
+          "by": "opencode",
+          "at": "2026-11-21T06:12:23.249Z"
+        }
+      },
+      {
+        "page": "/openwiki/synthesis.md",
+        "bodyHash": "486fa63c8a225a5b6ec4ad7466b00101f332661cdef224439bccf9a51f7e5861",
+        "generated": {
+          "by": "opencode",
+          "at": "2026-11-21T06:12:23.249Z"
+        }
+      }
+    ]
+  },
+  "plan": {
+    "pages": [
+      {
+        "id": "990cd7c3-7e29-4c87-8399-3ceb6e0fa79d",
+        "path": "/openwiki/architecture.md",
+        "title": "Architecture Overview",
+        "purpose": "End-to-end request flow and module layout from CLI and SemService through daemon, retrieval, fusion, prompting, synthesis, and fallbacks.",
+        "seedPaths": [
+          "src/sempropos/cli.py",
+          "src/sempropos/daemon/server.py",
+          "src/sempropos/model/spec.py",
+          "src/sempropos/service.py"
+        ],
+        "relatedPages": [
+          "/openwiki/cli.md",
+          "/openwiki/retrieval.md",
+          "/openwiki/synthesis.md"
+        ],
+        "instructions": [],
+        "status": "complete",
+        "completedBy": "opencode"
+      },
+      {
+        "id": "5d4d80c3-8b36-4cc7-a3ac-2f862bbee94a",
+        "path": "/openwiki/cli.md",
+        "title": "CLI Surface and Query Dispatch",
+        "purpose": "Commands, bare-query normalization, ask/show/search output modes, daemon/config/model commands, flags, exit codes, and dispatch behavior for the sem CLI.",
+        "seedPaths": [
+          "src/sempropos/cli.py"
+        ],
+        "relatedPages": [
+          "/openwiki/architecture.md",
+          "/openwiki/shell-integration.md"
+        ],
+        "instructions": [],
+        "status": "complete",
+        "completedBy": "opencode"
+      },
+      {
+        "id": "a8a8fcb4-7c6b-449e-9a5c-85f84d3ae8f0",
+        "path": "/openwiki/configuration.md",
+        "title": "Configuration and Paths",
+        "purpose": "Data and config directory resolution, config.toml schema, role/provider settings, model tiers, index metadata validation, and API key resolution.",
+        "seedPaths": [
+          "src/sempropos/config.py",
+          "src/sempropos/utils.py"
+        ],
+        "relatedPages": [
+          "/openwiki/operations.md",
+          "/openwiki/synthesis.md"
+        ],
+        "instructions": [],
+        "status": "complete",
+        "completedBy": "opencode"
+      },
+      {
+        "id": "7b32ee6d-c6d3-4e3b-b1e4-45663ec5c62f",
+        "path": "/openwiki/development.md",
+        "title": "Development and Quality",
+        "purpose": "Local development setup, Makefile targets, ruff and mypy configuration, CI workflows, test layout and offline policy, release publishing, and roadmap themes.",
+        "seedPaths": [
+          ".github/workflows/ci.yml",
+          "CONTRIBUTING.md",
+          "Makefile",
+          "ROADMAP.md",
+          "pyproject.toml"
+        ],
+        "relatedPages": [
+          "/openwiki/architecture.md",
+          "/openwiki/operations.md"
+        ],
+        "instructions": [],
+        "status": "complete",
+        "completedBy": "opencode"
+      },
+      {
+        "id": "a73a78cc-d38b-4076-b6fd-ef4927454b55",
+        "path": "/openwiki/index-schema.md",
+        "title": "Index Database Schema",
+        "purpose": "SQLite v3 tables, FTS5 virtual tables, triggers, connection and migration behavior, and the repository queries that depend on the schema.",
+        "seedPaths": [
+          "src/sempropos/index/repository.py",
+          "src/sempropos/index/schema.py"
+        ],
+        "relatedPages": [
+          "/openwiki/indexing.md",
+          "/openwiki/retrieval.md"
+        ],
+        "instructions": [],
+        "status": "complete",
+        "completedBy": "opencode"
+      },
+      {
+        "id": "f1b8a691-ca7b-42e9-9aac-fdc16aefb464",
+        "path": "/openwiki/indexing.md",
+        "title": "Indexing Pipeline",
+        "purpose": "How sempropos discovers man pages, tldr pages, completions, and safe --help probes, merges them into ToolSpecs, builds SQLite v3, and maintains embeddings incrementally and atomically.",
+        "seedPaths": [
+          "src/sempropos/index/builder.py",
+          "src/sempropos/sources/discovery.py",
+          "src/sempropos/sources/merger.py"
+        ],
+        "relatedPages": [
+          "/openwiki/index-schema.md",
+          "/openwiki/operations.md"
+        ],
+        "instructions": [],
+        "status": "complete",
+        "completedBy": "opencode"
+      },
+      {
+        "id": "bbacc43a-52ae-4a7d-ba49-2f6e832213e4",
+        "path": "/openwiki/operations.md",
+        "title": "Operations and Troubleshooting",
+        "purpose": "Install, update, doctor, configure, daemon, model, and provider workflows, index staleness detection, and remedies for common index, provider, daemon, and environment failures.",
+        "seedPaths": [
+          "src/sempropos/cli.py",
+          "src/sempropos/daemon/client.py",
+          "src/sempropos/index/staleness.py"
+        ],
+        "relatedPages": [
+          "/openwiki/configuration.md",
+          "/openwiki/quickstart.md"
+        ],
+        "instructions": [],
+        "status": "complete",
+        "completedBy": "opencode"
+      },
+      {
+        "id": "f3e34a85-f7c6-4c8b-9453-751934ab0506",
+        "path": "/openwiki/retrieval.md",
+        "title": "Retrieval and Ranking",
+        "purpose": "Query tokenization and synonym expansion, BM25-primary lexical ranking with name boost, cosine semantic recall, hybrid fusion semantics, and per-tool flag selection.",
+        "seedPaths": [
+          "src/sempropos/retrieval/bm25.py",
+          "src/sempropos/retrieval/fusion.py",
+          "src/sempropos/retrieval/query.py"
+        ],
+        "relatedPages": [
+          "/openwiki/architecture.md",
+          "/openwiki/index-schema.md"
+        ],
+        "instructions": [],
+        "status": "complete",
+        "completedBy": "opencode"
+      },
+      {
+        "id": "74892dfc-bda4-4756-9d67-b4c6a09b9048",
+        "path": "/openwiki/shell-integration.md",
+        "title": "Shell Integration",
+        "purpose": "The zsh, bash, and fish Ctrl+S widgets, tab completion, the stty requirement, and the --porcelain contract that makes in-place command replacement safe.",
+        "seedPaths": [
+          "src/sempropos/cli.py",
+          "src/sempropos/shell.py"
+        ],
+        "relatedPages": [
+          "/openwiki/cli.md",
+          "/openwiki/quickstart.md"
+        ],
+        "instructions": [],
+        "status": "complete",
+        "completedBy": "opencode"
+      },
+      {
+        "id": "29d6c960-06cf-49dc-9bf0-ebe097131b5a",
+        "path": "/openwiki/synthesis.md",
+        "title": "Prompting and Synthesis Providers",
+        "purpose": "Provider contracts and dispatch, managed local GGUF tiers, Ollama and OpenAI-compatible backends, FastEmbed embeddings, tier0 fallback, prompt budgeting, command extraction, grounding, and safety warnings.",
+        "seedPaths": [
+          "src/sempropos/intelligence/facade.py",
+          "src/sempropos/intelligence/prompt.py",
+          "src/sempropos/intelligence/safety.py"
+        ],
+        "relatedPages": [
+          "/openwiki/architecture.md",
+          "/openwiki/configuration.md"
+        ],
+        "instructions": [],
+        "status": "pending"
+      },
+      {
+        "id": "3060b282-c236-45c7-8123-09958cc2cd26",
+        "path": "/openwiki/quickstart.md",
+        "title": "Quickstart",
+        "purpose": "Install sem, build the first index, run each query mode, enable shell integration, and choose a synthesis backend.",
+        "seedPaths": [
+          "README.md",
+          "src/sempropos/cli.py"
+        ],
+        "relatedPages": [
+          "/openwiki/cli.md",
+          "/openwiki/operations.md"
+        ],
+        "instructions": [],
+        "status": "pending"
+      }
+    ],
+    "deletePages": [],
+    "deferredClaimPages": []
+  }
+}

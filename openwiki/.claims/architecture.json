@@ -1,0 +1,152 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:c2b1a04c5ee0f890d29953681a5dfec8c891334d21b421168d171568cc726672",
+  "claims": [
+    {
+      "id": "claim_ac15f82c0c474154957de6f025efdbfb",
+      "statement": "The `sem` console script resolves to `sempropos.cli:main`, which first attempts a warm-daemon porcelain fast path and then dispatches a Typer app after `_normalize_argv` routes bare natural-language queries to the `ask` subcommand.",
+      "evidence": [
+        {
+          "resource": "repo://pyproject.toml",
+          "version": "repo-file-v1:sha256:12c1c8990c46455384e05cd0b28c165901f6529fa1cdba20f8c5215d58896383"
+        },
+        {
+          "resource": "repo://src/sempropos/cli.py",
+          "version": "repo-file-v1:sha256:3217a5c67e8792c474cc3c03978817033d23fb625f7413c2388c39943b07bd26"
+        },
+        {
+          "resource": "repo://src/sempropos/daemon/client.py",
+          "version": "repo-file-v1:sha256:d519e62f35c9a7777d65baebea7b0dbfc12cd9befb6bc09439b5a7335731f129"
+        }
+      ]
+    },
+    {
+      "id": "claim_a1a761fc0a45430a88b43c9ae15e9d02",
+      "statement": "`SemService.ask` orchestrates index validation, query analysis, BM25 retrieval at top_k=20, confidence-gated semantic recall, hybrid fusion, candidate loading for up to five tools, prompt construction, provider dispatch, output parsing, one repair retry, and command verification.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/service.py",
+          "version": "repo-file-v1:sha256:60b2fe26cee56876d643eac7805245a7c8ed4d5efb2910de3e01a8060868a3eb"
+        }
+      ]
+    },
+    {
+      "id": "claim_0fc267ec358646e6bc99b590fcf340c3",
+      "statement": "`hybrid_fusion` sorts BM25 results by descending score with semantic rank as the tie-breaker, assigns reciprocal-rank scores `1/(60+rank)`, and appends semantic-only hits with score 0.0 below every lexical hit.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/retrieval/fusion.py",
+          "version": "repo-file-v1:sha256:50db777d9d0893e3be4a40acb08b7e1c54bffbf05c22d8b0a00a3b6b7c03b480"
+        }
+      ]
+    },
+    {
+      "id": "claim_970e0fde18d44ba6b881b7b9bb9f1f65",
+      "statement": "BM25 uses FTS5 column weights 12/10/6/4/4/3/1.5, squashes raw magnitude as m/(m+8), adds exact name and alias boosts of 1.6 and 1.4, scales synonym-only hits by 0.35, and adds a 1.15 AND-match bonus.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/retrieval/bm25.py",
+          "version": "repo-file-v1:sha256:85a1edd9a345e4b21aa3cfc8c4dab020d5a596c63991b331a5b1650faad546aa"
+        }
+      ]
+    },
+    {
+      "id": "claim_a1a1cf6cd77a4245954746561cf09c5e",
+      "statement": "Semantic retrieval embeds the query with kind=\"query\" and ranks tools by cosine similarity against a memory-mapped float32 embedding matrix.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/intelligence/providers/_fastembed.py",
+          "version": "repo-file-v1:sha256:d0f258b23ac6d2d3cd758d3a3ba354ce7b4ae993d23bdad788b100b114aa162e"
+        },
+        {
+          "resource": "repo://src/sempropos/retrieval/semantic.py",
+          "version": "repo-file-v1:sha256:53cde475fc795bd7449aa1e89e56ba0e3aaf788de4ed3c75b9a54a8ea70aef5d"
+        }
+      ]
+    },
+    {
+      "id": "claim_a64edc2c789e475190b887533f457cd0",
+      "statement": "Candidate assembly attaches stored metadata plus query-relevant subcommands, flags, and examples; the ask path budgets up to five tools with four subcommands, eight flags, and four examples each, while a direct tool filter allows twelve flags and six examples.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/retrieval/flag_retrieval.py",
+          "version": "repo-file-v1:sha256:508cfc2b5c544a49c0b09257f710d03150cfd8682a3804acf854279a9c0a5cff"
+        },
+        {
+          "resource": "repo://src/sempropos/service.py",
+          "version": "repo-file-v1:sha256:60b2fe26cee56876d643eac7805245a7c8ed4d5efb2910de3e01a8060868a3eb"
+        }
+      ]
+    },
+    {
+      "id": "claim_f207da64786a40ff9f80df03f93d153e",
+      "statement": "Prompt construction enforces a 680-word budget by reducing examples from four to one, then flags from eight to four, then subcommands from four to two, then tools from five to one.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/intelligence/prompt.py",
+          "version": "repo-file-v1:sha256:309a3dd0dcefceab19edd749e2825a43cf23a31787580a157416ca167849e3b9"
+        }
+      ]
+    },
+    {
+      "id": "claim_1d3d5303154548a6b2a70de7e9250a4b",
+      "statement": "`parse_synthesis_output` prefers structured JSON, extracts fenced or plain commands, rejects prose and usage echoes, records an explicit `none` answer, and `SemService` performs one repair retry when no command is extracted and the model did not explicitly answer none.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/intelligence/prompt.py",
+          "version": "repo-file-v1:sha256:309a3dd0dcefceab19edd749e2825a43cf23a31787580a157416ca167849e3b9"
+        },
+        {
+          "resource": "repo://src/sempropos/service.py",
+          "version": "repo-file-v1:sha256:60b2fe26cee56876d643eac7805245a7c8ed4d5efb2910de3e01a8060868a3eb"
+        }
+      ]
+    },
+    {
+      "id": "claim_5c6edebd1e5b4686af33ac5efcf1038a",
+      "statement": "When synthesis is unavailable or yields no usable command, the service returns ranked candidates and the CLI renders up to four structured ToolSpec cards with summaries, subcommands, flags, and examples; the tier0 card fallback exits successfully.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/cli.py",
+          "version": "repo-file-v1:sha256:3217a5c67e8792c474cc3c03978817033d23fb625f7413c2388c39943b07bd26"
+        },
+        {
+          "resource": "repo://src/sempropos/intelligence/providers/_tier0.py",
+          "version": "repo-file-v1:sha256:a11dd8d5a953405cb270be76f461002f2b12f661db9af4f48b250d07354c5ae5"
+        }
+      ]
+    },
+    {
+      "id": "claim_646f6b72acd64ea3876b4d84ed86e2e3",
+      "statement": "In porcelain mode, stdout contains only the runnable command on success, failures are reported on stderr with exit 3 for index or no-candidate errors and exit 1 otherwise, and a warm daemon can serve the request without importing the full CLI stack.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/cli.py",
+          "version": "repo-file-v1:sha256:3217a5c67e8792c474cc3c03978817033d23fb625f7413c2388c39943b07bd26"
+        },
+        {
+          "resource": "repo://src/sempropos/daemon/client.py",
+          "version": "repo-file-v1:sha256:d519e62f35c9a7777d65baebea7b0dbfc12cd9befb6bc09439b5a7335731f129"
+        }
+      ]
+    },
+    {
+      "id": "claim_89fd53444dd748e6af21f6be8a826ed2",
+      "statement": "The persistent index consists of a SQLite v3 database, a NumPy tool embedding matrix and id vector, index.meta, and a last_indexed timestamp, alongside tldr, model, embedding, and binary caches under the data directory.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/config.py",
+          "version": "repo-file-v1:sha256:7fcff0f697c0c7f9d4d316ef8d919cae807c254a3bebd4089349e43417b7fd83"
+        },
+        {
+          "resource": "repo://src/sempropos/index/builder.py",
+          "version": "repo-file-v1:sha256:e0b39838ecdb6499aca8ae1451c54410a54b28994963ab954e1e1b2bcc6218bc"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.9.0",
+    "at": "2026-11-23T21:48:04.805Z"
+  }
+}

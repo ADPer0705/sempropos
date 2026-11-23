@@ -1,0 +1,162 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:e414171b9b7fce2daff78f95a0c67065042cac13c121e11273c89e4cc9877112",
+  "claims": [
+    {
+      "id": "claim_eb6e53cbf88840cb858749cd1558f37a",
+      "statement": "Query preparation tokenizes to alphanumeric runs, filters stopwords while retaining short command names, adds naive singular forms including -ies to -y, and expands terms through a directional weighted map rather than a symmetric network.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/retrieval/expansion.py",
+          "version": "repo-file-v1:sha256:5ea0f1ac1932ad1ae099f1df47db00c2d2dfae770f8d92318c70c6e094ec6895"
+        },
+        {
+          "resource": "repo://src/sempropos/retrieval/query.py",
+          "version": "repo-file-v1:sha256:9e8247447af48a85019d25dca60ca40ce076d8762954b51fb25d8bf4c929fce5"
+        }
+      ]
+    },
+    {
+      "id": "claim_de5ba972253a41818a6c633e3d0a0062",
+      "statement": "The singular form is produced only for tokens longer than three characters ending in s but not ss, us, or is, with -ies converted to -y.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/retrieval/query.py",
+          "version": "repo-file-v1:sha256:9e8247447af48a85019d25dca60ca40ce076d8762954b51fb25d8bf4c929fce5"
+        }
+      ]
+    },
+    {
+      "id": "claim_1284a9ab27614217bfe5dd6ec38c6ff8",
+      "statement": "FTS queries strip non-word characters, de-duplicate, quote tokens to avoid FTS5 keyword collisions, and join with OR or AND.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/retrieval/bm25.py",
+          "version": "repo-file-v1:sha256:85a1edd9a345e4b21aa3cfc8c4dab020d5a596c63991b331a5b1650faad546aa"
+        }
+      ]
+    },
+    {
+      "id": "claim_8e11875e99a14d33bfc4a34447a91ffd",
+      "statement": "BM25 runs primary OR, optional primary AND, directional expansion, and direct name/alias lookups; scores use saturation rather than min-max normalization, an AND bonus, a 0.35 synonym weight, 1.6 name and 1.4 alias boosts, and artifact/intent boosts.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/retrieval/bm25.py",
+          "version": "repo-file-v1:sha256:85a1edd9a345e4b21aa3cfc8c4dab020d5a596c63991b331a5b1650faad546aa"
+        }
+      ]
+    },
+    {
+      "id": "claim_586e9e942a87420699aed43b6328a7d1",
+      "statement": "Semantic retrieval memory-maps the float32 tool matrix, caches it by data directory and index.meta mtime, verifies ids match the database order, embeds the query with kind=query, and ranks by cosine similarity.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/retrieval/semantic.py",
+          "version": "repo-file-v1:sha256:53cde475fc795bd7449aa1e89e56ba0e3aaf788de4ed3c75b9a54a8ea70aef5d"
+        }
+      ]
+    },
+    {
+      "id": "claim_5ff3836eb9a54538a05aec6f2287aab7",
+      "statement": "`hybrid_fusion` sorts BM25 results by lexical score, then semantic rank only for exact ties, then tool id, and assigns rank-based non-increasing scores.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/retrieval/fusion.py",
+          "version": "repo-file-v1:sha256:50db777d9d0893e3be4a40acb08b7e1c54bffbf05c22d8b0a00a3b6b7c03b480"
+        }
+      ]
+    },
+    {
+      "id": "claim_3c8bb9558b0f443fb6fc6767e785b02d",
+      "statement": "Semantic-only tools are appended after all lexical matches with score 0.0, optionally capped by semantic_recall_limit, so semantics add recall rather than re-ranking.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/retrieval/fusion.py",
+          "version": "repo-file-v1:sha256:50db777d9d0893e3be4a40acb08b7e1c54bffbf05c22d8b0a00a3b6b7c03b480"
+        }
+      ]
+    },
+    {
+      "id": "claim_4033ea5b9e874c98b88e852857425d5a",
+      "statement": "`reciprocal_rank_fusion` implements standard RRF with a positive k defaulting to 60 but is not called by the query path.",
+      "evidence": [
+        {
+          "resource": "repo://ROADMAP.md",
+          "version": "repo-file-v1:sha256:9e371b10d5169d3cc711352dce920947e8a8c2054f3e830f717cdd690467a3b0"
+        },
+        {
+          "resource": "repo://src/sempropos/retrieval/fusion.py",
+          "version": "repo-file-v1:sha256:50db777d9d0893e3be4a40acb08b7e1c54bffbf05c22d8b0a00a3b6b7c03b480"
+        }
+      ]
+    },
+    {
+      "id": "claim_6679587df9a14d1fa2270d6de27becf7",
+      "statement": "`ask` keeps the top five fused tools and loads up to 8 flags, 4 subcommands, and 4 examples each, while a --tool filter allows 12 flags, 6 subcommands, and 6 examples and `search` uses 3/3/2.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/retrieval/flag_retrieval.py",
+          "version": "repo-file-v1:sha256:508cfc2b5c544a49c0b09257f710d03150cfd8682a3804acf854279a9c0a5cff"
+        },
+        {
+          "resource": "repo://src/sempropos/service.py",
+          "version": "repo-file-v1:sha256:60b2fe26cee56876d643eac7805245a7c8ed4d5efb2910de3e01a8060868a3eb"
+        }
+      ]
+    },
+    {
+      "id": "claim_7aeefb542d9b4513acec70d303d592ed",
+      "statement": "Query analysis assigns tool boosts from file extensions and compound intent rules, with the first mapped tool receiving 1.8 and the remainder stepping down to a 0.7 floor.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/retrieval/query.py",
+          "version": "repo-file-v1:sha256:9e8247447af48a85019d25dca60ca40ce076d8762954b51fb25d8bf4c929fce5"
+        }
+      ]
+    },
+    {
+      "id": "claim_060b32ec9d0e4bde90794fa059703ea8",
+      "statement": "tools_fts column weights are 12, 10, 6, 4, 4, 3, and 1.5 for name, aliases, summary, tags, subcommands, examples, and flags, and raw BM25 magnitude is squashed by magnitude/(magnitude+8).",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/retrieval/bm25.py",
+          "version": "repo-file-v1:sha256:85a1edd9a345e4b21aa3cfc8c4dab020d5a596c63991b331a5b1650faad546aa"
+        }
+      ]
+    },
+    {
+      "id": "claim_23961fd5844e420d8771bf47864831c7",
+      "statement": "Cold semantic recall is skipped when BM25 is decisive: top score at least 1.65 with a 0.45 margin, or an artifact hint with a top score of at least 1.5, unless embeddings are warm or lazy_fallback is disabled.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/retrieval/fusion.py",
+          "version": "repo-file-v1:sha256:50db777d9d0893e3be4a40acb08b7e1c54bffbf05c22d8b0a00a3b6b7c03b480"
+        }
+      ]
+    },
+    {
+      "id": "claim_5af7e5db5fc34e529b3302da5801cee3",
+      "statement": "`sem search` invokes semantic recall only when the embedding model is already warm or BM25 returned no results.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/service.py",
+          "version": "repo-file-v1:sha256:60b2fe26cee56876d643eac7805245a7c8ed4d5efb2910de3e01a8060868a3eb"
+        }
+      ]
+    },
+    {
+      "id": "claim_97c3e693f315428e809bb00f29b00a5c",
+      "statement": "Directional expansions use per-term weights in (0,1], keep the maximum weight per expanded term, exclude terms already present in the query, and sort the remainder by descending weight.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/retrieval/expansion.py",
+          "version": "repo-file-v1:sha256:5ea0f1ac1932ad1ae099f1df47db00c2d2dfae770f8d92318c70c6e094ec6895"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.9.0",
+    "at": "2026-11-23T21:48:04.805Z"
+  }
+}
