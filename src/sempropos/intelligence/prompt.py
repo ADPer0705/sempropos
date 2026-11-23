@@ -1,27 +1,57 @@
-"""Prompt construction for command synthesis."""
+"""Prompt construction, JSON schema constraints, and resilient output parsing."""
 
 from __future__ import annotations
 
+import json
 import re
+from dataclasses import dataclass
+from typing import Any
 
 from sempropos.intelligence.contracts import StructuredPrompt
 
+COMMAND_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "tool": {"type": "string", "description": "Primary CLI tool selected from context"},
+        "command": {
+            "type": "string",
+            "description": "Single runnable shell command on one line (empty if none=true)",
+        },
+        "explanation": {
+            "type": "string",
+            "description": "One concise sentence explaining what the command does",
+        },
+        "alternatives": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Optional alternative commands when requested",
+        },
+        "none": {
+            "type": "boolean",
+            "description": "True only when no tool in the context can accomplish the task",
+        },
+    },
+    "required": ["tool", "command", "explanation", "none"],
+    "additionalProperties": False,
+}
+
 SYSTEM_INSTRUCTION = (
-    "You are a shell command synthesizer. Choose the single most relevant tool from the "
-    "context and reply with one concrete shell command on one line. Prefer the flags shown in "
-    "the context, but you may use other standard, well-known flags of that same tool when the "
-    "task requires them. Never invent tools that are not in the context. Do not repeat a "
-    "usage/synopsis line; always produce a runnable command with real arguments or obvious "
-    "placeholders. Do not use markdown or code fences. Do not explain. If no listed tool can "
-    "accomplish the task, reply with exactly: NONE"
+    "You are a precise offline shell command synthesizer. Choose the single best tool from the "
+    "provided local ToolSpec context and emit a JSON object matching the schema: "
+    '{"tool": "<name>", "command": "<one runnable command>", "explanation": "<short explanation>", '
+    '"alternatives": [], "none": false}. '
+    "Prefer flags, subcommands, and patterns from the context, and never invent tools not listed "
+    "in the context. Never echo a usage/synopsis line (e.g. `du [OPTION]...`); always emit a "
+    "concrete runnable command with realistic placeholders when needed. If no listed tool fits "
+    'the task, return {"tool": "", "command": "", "explanation": "", "alternatives": [], "none": true}.'
 )
 
-MAX_PROMPT_WORDS = 600
+MAX_PROMPT_WORDS = 680
 MAX_TOOLS = 5
-MAX_FLAGS_PER_TOOL = 6
+MAX_SUBCOMMANDS_PER_TOOL = 4
+MAX_FLAGS_PER_TOOL = 8
 MAX_EXAMPLES_PER_TOOL = 4
 
-# Phrases that indicate the model answered in prose instead of emitting a command.
 _PROSE_MARKERS = (
     "i'm sorry",
     "i am sorry",
@@ -34,36 +64,42 @@ _PROSE_MARKERS = (
     "explanation",
 )
 
+_FENCE_BLOCK_RE = re.compile(r"```(?:[a-zA-Z0-9_+-]+)?\s*\n(.*?)```", re.DOTALL)
 
-def extract_command(raw_output: str) -> str | None:
-    """Normalize model output into a single shell command, or ``None``.
 
-    Strips code fences, shell prompts, and surrounding whitespace, then rejects
-    prose answers and the explicit ``NONE`` sentinel so the caller can fall back
-    to a non-LLM response instead of printing something wrong.
-    """
-    if not raw_output:
+@dataclass(frozen=True)
+class ParsedSynthesis:
+    """Normalized structured command extracted from either JSON or raw text output."""
+
+    command: str | None
+    tool: str | None = None
+    explanation: str = ""
+    alternatives: tuple[str, ...] = ()
+    explicit_none: bool = False
+
+
+def _sanitize_single_command(raw_cmd: str) -> str | None:
+    """Validate and normalize a single candidate command line."""
+    if not raw_cmd:
         return None
+    text = raw_cmd.strip()
 
-    text = raw_output.strip()
+    # Handle fenced code blocks properly (including ```bash\ncmd\n```!).
+    fence_match = _FENCE_BLOCK_RE.search(text)
+    if fence_match:
+        text = fence_match.group(1).strip()
+    elif "```" in text:
+        text = text.replace("```", "").strip()
 
-    # Drop fenced code blocks, keeping the first line inside the fence if present.
-    if "```" in text:
-        segments = text.split("```")
-        for segment in segments:
-            candidate = segment.strip()
-            if candidate and not candidate.lower().startswith(("bash", "sh", "shell", "console", "zsh")):
-                text = candidate
-                break
-        text = text.strip()
+    # Unwrap inline backticks `cmd`
+    if len(text) >= 2 and text.startswith("`") and text.endswith("`"):
+        text = text[1:-1].strip()
 
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     if not lines:
         return None
 
     command = lines[0]
-
-    # Strip a leading shell prompt if the model mimicked a terminal.
     while command[:1] in {"$", "#", ">"}:
         command = command[1:].strip()
 
@@ -74,134 +110,210 @@ def extract_command(raw_output: str) -> str | None:
     if any(marker in lowered for marker in _PROSE_MARKERS):
         return None
 
-    # Reject usage/synopsis echoes such as "du [OPTION]... FILE...".
+    # Reject usage/synopsis echoes like `du [OPTION]... FILE...`
     if re.search(r"\[[A-Z][A-Z0-9_.-]*\]", command):
         return None
     if re.search(r"\b(OPTION|OPTIONS|FLAGS)\b", command):
         return None
 
-    # A command should not still contain a fence or be unreasonably long.
     if "```" in command or len(command) > 500:
         return None
 
     return command
 
 
+def extract_command(raw_output: str) -> str | None:
+    """Extract a single runnable shell command from JSON or plain model output."""
+    return parse_synthesis_output(raw_output).command
+
+
+def _try_parse_json_object(raw: str) -> dict[str, Any] | None:
+    text = raw.strip()
+    if not text:
+        return None
+
+    fence_match = _FENCE_BLOCK_RE.search(text)
+    if fence_match:
+        text = fence_match.group(1).strip()
+
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end <= start:
+        return None
+
+    try:
+        parsed = json.loads(text[start : end + 1])
+    except json.JSONDecodeError:
+        return None
+
+    return parsed if isinstance(parsed, dict) else None
+
+
+def parse_synthesis_output(raw_output: str) -> ParsedSynthesis:
+    """Parse structured JSON synthesis output, falling back gracefully to raw text."""
+    if not raw_output or not raw_output.strip():
+        return ParsedSynthesis(command=None)
+
+    stripped = raw_output.strip()
+    if stripped.upper().strip(".!") == "NONE":
+        return ParsedSynthesis(command=None, explicit_none=True)
+
+    obj = _try_parse_json_object(stripped)
+    if obj is not None:
+        if bool(obj.get("none")):
+            return ParsedSynthesis(
+                command=None,
+                tool=str(obj.get("tool") or "") or None,
+                explanation=str(obj.get("explanation") or "").strip(),
+                explicit_none=True,
+            )
+        cmd = _sanitize_single_command(str(obj.get("command") or ""))
+        tool = str(obj.get("tool") or "").strip() or None
+        explanation = str(obj.get("explanation") or "").strip()
+        raw_alts = obj.get("alternatives")
+        alts: list[str] = []
+        if isinstance(raw_alts, list):
+            for item in raw_alts:
+                clean_alt = _sanitize_single_command(str(item))
+                if clean_alt and clean_alt != cmd and clean_alt not in alts:
+                    alts.append(clean_alt)
+        return ParsedSynthesis(
+            command=cmd,
+            tool=tool,
+            explanation=explanation,
+            alternatives=tuple(alts),
+            explicit_none=False,
+        )
+
+    return ParsedSynthesis(command=_sanitize_single_command(stripped))
+
 
 def _word_count(text: str) -> int:
-    """Return a conservative word-budget count for prompt sizing."""
     return len(text.split())
 
 
-def _format_flag(flag: dict) -> str:
-    """Render one flag record into the prompt's human-readable flag line."""
-    forms = [flag.get("flag") or "*"]
-    if flag.get("long_flag"):
-        forms.append(flag["long_flag"])
-
+def _format_flag(flag: dict[str, Any]) -> str:
+    short = flag.get("short_flag") or flag.get("flag")
+    long = flag.get("long_flag")
+    forms = [str(f) for f in (short, long) if f]
+    if not forms:
+        forms = ["*"]
+    # Avoid duplicating when flag == long_flag
+    forms = list(dict.fromkeys(forms))
     head = ", ".join(forms)
     if flag.get("takes_value"):
-        hint = flag.get("value_hint") or "value"
+        hint = str(flag.get("value_hint") or "value")
         head = f"{head} <{hint}>"
+    description = str(flag.get("description") or "").strip()[:180]
+    return f"  {head} — {description}"
 
-    description = (flag.get("description") or "").strip()
-    return f"  {head} - {description}"
 
-
-def context_to_str(context: list[dict]) -> str:
-    """
-    Convert the structured context list into a human-readable string.
-    Note: The context list should already be truncated to budget before calling this.
-    """
+def context_to_str(context: list[dict[str, Any]]) -> str:
+    """Render structured ToolSpec candidates into compact prompt context."""
     lines: list[str] = []
-    lines.append("")
-
     for candidate in context:
-        tool = candidate.get("tool", "unknown")
-        lines.append(f"--- {tool} ---")
+        tool = str(candidate.get("tool") or "unknown")
+        summary = str(candidate.get("summary") or "").strip()
+        header = f"=== {tool}: {summary} ===" if summary else f"=== {tool} ==="
+        lines.append(header)
 
-        synopsis = (candidate.get("synopsis") or "").strip()
+        synopsis = str(candidate.get("synopsis") or "").strip()
         if synopsis:
-            lines.append(f"Synopsis: {synopsis}")
+            lines.append(f"Usage: {synopsis[:200]}")
+
+        subcommands = candidate.get("subcommands") or []
+        if subcommands:
+            lines.append("Subcommands:")
+            for sub in subcommands:
+                sname = str(sub.get("name") or "")
+                ssum = str(sub.get("summary") or "").strip()[:120]
+                lines.append(f"  {sname} — {ssum}" if ssum else f"  {sname}")
 
         flags = candidate.get("flags") or []
         if flags:
-            lines.append("Relevant flags:")
+            lines.append("Flags:")
             for flag in flags:
                 lines.append(_format_flag(flag))
 
         examples = candidate.get("examples") or []
         if examples:
             lines.append("Examples:")
-            for example in examples:
-                command = (example.get("command") or "").strip()
-                if command:
-                    lines.append(f"  {command}")
-
-        lines.append("---------")
+            for ex in examples:
+                cmd = str(ex.get("command") or "").strip()
+                ctx = str(ex.get("context") or "").strip()[:100]
+                if cmd:
+                    lines.append(f"  {cmd}  # {ctx}" if ctx else f"  {cmd}")
         lines.append("")
 
-    return "\n".join(lines)
+    return "\n".join(lines).strip()
 
 
 def _truncate_candidates(
-    candidates: list[dict], max_tools: int, max_flags: int, max_examples: int
-) -> list[dict]:
-    """Deep copy and truncate the candidate data structure to fit constraints."""
-    truncated = []
-    for c in candidates[:max_tools]:
-        new_c = c.copy()
-        if "flags" in new_c:
-            new_c["flags"] = new_c["flags"][:max_flags]
-        if "examples" in new_c:
-            new_c["examples"] = new_c["examples"][:max_examples]
-        truncated.append(new_c)
+    candidates: list[dict[str, Any]],
+    max_tools: int,
+    max_subs: int,
+    max_flags: int,
+    max_examples: int,
+) -> list[dict[str, Any]]:
+    truncated: list[dict[str, Any]] = []
+    for cand in candidates[:max_tools]:
+        copy = dict(cand)
+        if "subcommands" in copy:
+            copy["subcommands"] = list(copy["subcommands"])[:max_subs]
+        if "flags" in copy:
+            copy["flags"] = list(copy["flags"])[:max_flags]
+        if "examples" in copy:
+            copy["examples"] = list(copy["examples"])[:max_examples]
+        truncated.append(copy)
     return truncated
 
 
 def build_prompt(
     query: str,
-    candidates: list[dict],
+    candidates: list[dict[str, Any]],
+    *,
+    alternatives: int = 1,
 ) -> StructuredPrompt:
-    """Build the prompt body while budgeting the token usage."""
+    """Build a token-budgeted structured synthesis prompt from candidate ToolSpecs."""
     max_tools = MAX_TOOLS
+    max_subs = MAX_SUBCOMMANDS_PER_TOOL
     max_flags = MAX_FLAGS_PER_TOOL
     max_examples = MAX_EXAMPLES_PER_TOOL
 
-    normalized_query = (query or "").strip() + "\n\nCommand:"
+    extra = (
+        f" Also provide up to {alternatives - 1} distinct useful alternatives in `alternatives`."
+        if alternatives > 1
+        else ""
+    )
+    normalized_query = f"{(query or '').strip()}{extra}"
 
     while True:
-        # 1. Truncate the raw data structure
-        truncated_context = _truncate_candidates(candidates, max_tools, max_flags, max_examples)
-
-        # 2. Build the actual string to calculate word limits
-        formatted_context = context_to_str(truncated_context)
-
-        total_words = _word_count(SYSTEM_INSTRUCTION) + _word_count(normalized_query) + _word_count(formatted_context)
-
-        # 3. Create the prompt object
+        truncated = _truncate_candidates(candidates, max_tools, max_subs, max_flags, max_examples)
+        formatted = context_to_str(truncated)
+        total_words = (
+            _word_count(SYSTEM_INSTRUCTION)
+            + _word_count(normalized_query)
+            + _word_count(formatted)
+        )
         prompt = StructuredPrompt(
             system=SYSTEM_INSTRUCTION,
+            context=truncated,
             query=normalized_query,
-            context=truncated_context, # Store the pure list of dicts!
+            json_schema=COMMAND_JSON_SCHEMA,
         )
-
         if total_words <= MAX_PROMPT_WORDS:
             return prompt
 
-        if max_examples > 0:
+        if max_examples > 1:
             max_examples -= 1
-            continue
-
-        if max_flags > 3:
+        elif max_flags > 4:
             max_flags -= 1
-            continue
-
-        if max_tools > 1:
+        elif max_subs > 2:
+            max_subs -= 1
+        elif max_tools > 1:
             max_tools -= 1
+            max_subs = MAX_SUBCOMMANDS_PER_TOOL
             max_flags = MAX_FLAGS_PER_TOOL
             max_examples = MAX_EXAMPLES_PER_TOOL
-            continue
-
-        if max_tools == 1 and max_flags == 3 and max_examples == 0:
+        else:
             return prompt

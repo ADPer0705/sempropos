@@ -1,10 +1,17 @@
-"""Ollama provider implementation for synthesis and embedding using the official SDK."""
+"""Pure-HTTP Ollama provider for command synthesis and embeddings.
+
+Uses Python stdlib ``urllib.request`` directly against the Ollama REST API —
+requiring neither the ``ollama`` Python SDK nor runtime ``pip install`` calls.
+"""
 
 from __future__ import annotations
 
 import contextlib
-import importlib.util
+import json
+import os
+import urllib.error
 import urllib.request
+from typing import Any
 
 import numpy as np
 
@@ -16,96 +23,89 @@ from sempropos.intelligence.contracts import (
     SynthesisOptions,
     SynthesisResult,
 )
-from sempropos.intelligence.prompt import context_to_str
+from sempropos.intelligence.prompt import context_to_str, parse_synthesis_output
+
+DEFAULT_OLLAMA_HOST = "http://127.0.0.1:11434"
 
 
-def _get_ollama_module():
-    """Return the ollama SDK module if installed."""
-    if not importlib.util.find_spec("ollama"):
-        raise ProviderUnavailableError(
-            "Ollama SDK is not installed."
-        )
-
-    import ollama
-
-    return ollama
+def resolve_base_url(base_url: str | None = None) -> str:
+    """Resolve the Ollama daemon URL from explicit config, ``OLLAMA_HOST``, or default."""
+    raw = (base_url or os.environ.get("OLLAMA_HOST") or DEFAULT_OLLAMA_HOST).strip()
+    if not raw.startswith(("http://", "https://")):
+        raw = f"http://{raw}"
+    return raw.rstrip("/")
 
 
-def is_available() -> bool:
-    """Check if the Ollama daemon is reachable locally, regardless of the SDK."""
+def is_available(base_url: str | None = None) -> bool:
+    """Check if the Ollama HTTP daemon is reachable."""
+    url = f"{resolve_base_url(base_url)}/api/tags"
     try:
-        req = urllib.request.Request("http://127.0.0.1:11434/api/tags", method="GET")
+        req = urllib.request.Request(url, method="GET")
         with urllib.request.urlopen(req, timeout=1.5):
             return True
     except Exception:  # noqa: BLE001
         return False
 
 
-def get_available_models() -> list[str]:
-    if not is_available():
-        raise ProviderUnavailableError(
-            "Ollama daemon is missing or unreachable. Please start Ollama."
-        )
-
-    ollama = _get_ollama_module()
-
+def _http_json(
+    url: str,
+    payload: dict[str, Any] | None = None,
+    *,
+    timeout: float = 30.0,
+) -> dict[str, Any]:
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    headers = {"Content-Type": "application/json"} if data is not None else {}
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers=headers,
+        method="POST" if data is not None else "GET",
+    )
     try:
-        models_info = ollama.list()
-
-        if hasattr(models_info, "models"):
-            return [model.model for model in models_info.models]
-
-        # fallback for older SDK versions
-        model_list = (
-            models_info.get("models", models_info)
-            if isinstance(models_info, dict)
-            else models_info
-        )
-        return [
-            model["name"] if isinstance(model, dict) else model.model
-            for model in model_list
-        ]
-
-    except Exception as e:
-        raise ProviderExecutionError(f"Failed to retrieve models from Ollama: {e}") from e
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            decoded = json.load(resp)
+            return decoded if isinstance(decoded, dict) else {}
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")
+        raise ProviderExecutionError(f"Ollama HTTP {exc.code}: {detail[:300]}") from exc
+    except urllib.error.URLError as exc:
+        raise ProviderUnavailableError(
+            f"Ollama daemon is unreachable at {url}: {exc.reason}"
+        ) from exc
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ProviderExecutionError(f"Ollama request failed: {exc}") from exc
 
 
-def _extract_content(response: object) -> str:
-    """Pull the assistant message text out of an Ollama chat response."""
-    if response is None:
-        return ""
-
-    # pydantic-style response (modern SDK)
-    message = getattr(response, "message", None)
-    if message is not None:
-        content = getattr(message, "content", None)
-        if content:
-            return str(content)
-
-    # dict-style response (older SDK / raw API)
-    if isinstance(response, dict):
-        message = response.get("message")
-        if isinstance(message, dict):
-            return str(message.get("content") or "")
-
-    return ""
+def get_available_models(base_url: str | None = None) -> list[str]:
+    """List installed models via ``GET /api/tags``."""
+    root = resolve_base_url(base_url)
+    payload = _http_json(f"{root}/api/tags", timeout=5.0)
+    models = payload.get("models")
+    if not isinstance(models, list):
+        return []
+    names: list[str] = []
+    for item in models:
+        if isinstance(item, dict):
+            name = item.get("name") or item.get("model")
+            if isinstance(name, str) and name:
+                names.append(name)
+    return names
 
 
-def _build_chat_kwargs(
+def _build_chat_body(
     prompt: StructuredPrompt,
     model: str,
     options: SynthesisOptions,
-) -> dict:
+) -> dict[str, Any]:
     formatted_context = context_to_str(prompt.context)
-
-    generation: dict = {
+    gen_opts: dict[str, Any] = {
         "temperature": options.temperature,
         "num_predict": options.max_tokens,
     }
     if options.stop:
-        generation["stop"] = options.stop
+        gen_opts["stop"] = options.stop
 
-    kwargs: dict = {
+    body: dict[str, Any] = {
         "model": model,
         "messages": [
             {"role": "system", "content": prompt.system},
@@ -115,14 +115,23 @@ def _build_chat_kwargs(
             },
         ],
         "stream": False,
-        "options": generation,
+        "options": gen_opts,
+        "think": options.think,
     }
     if options.keep_alive is not None:
-        kwargs["keep_alive"] = options.keep_alive
-    if options.think is not None:
-        kwargs["think"] = options.think
+        body["keep_alive"] = options.keep_alive
+    if options.structured_output and prompt.json_schema is not None:
+        body["format"] = prompt.json_schema
+    return body
 
-    return kwargs
+
+def _extract_message_content(payload: dict[str, Any]) -> str:
+    message = payload.get("message")
+    if isinstance(message, dict):
+        content = message.get("content")
+        if isinstance(content, str):
+            return content
+    return ""
 
 
 def synthesize(
@@ -130,73 +139,82 @@ def synthesize(
     model: str | None = None,
     options: SynthesisOptions | None = None,
 ) -> SynthesisResult:
-    if not is_available():
-        raise ProviderUnavailableError(
-            "Ollama daemon is missing or unreachable. Please start Ollama."
-        )
+    """Synthesize a shell command via Ollama ``POST /api/chat``."""
+    opts = options or SynthesisOptions()
+    root = resolve_base_url(opts.base_url)
     if not model:
         raise ProviderConfigurationError("No model configured for Ollama synthesis.")
 
-    options = options or SynthesisOptions()
-    ollama = _get_ollama_module()
-    kwargs = _build_chat_kwargs(prompt, model, options)
+    body = _build_chat_body(prompt, model, opts)
+    chat_url = f"{root}/api/chat"
 
     try:
-        try:
-            response = ollama.chat(**kwargs)
-        except Exception as exc:  # noqa: BLE001
-            # Some models do not support the `think` parameter at all. Retrying
-            # without it keeps those models usable instead of failing outright.
-            if "think" in str(exc).lower() and "think" in kwargs:
-                kwargs.pop("think")
-                response = ollama.chat(**kwargs)
-            else:
-                raise
+        payload = _http_json(chat_url, body, timeout=opts.timeout_seconds)
+    except ProviderExecutionError as exc:
+        lowered = str(exc).lower()
+        retried = False
+        if "think" in lowered and "think" in body:
+            body.pop("think", None)
+            retried = True
+        if "format" in lowered and "format" in body:
+            body.pop("format", None)
+            retried = True
+        if not retried:
+            raise
+        payload = _http_json(chat_url, body, timeout=opts.timeout_seconds)
 
-        command = _extract_content(response).strip()
-        return SynthesisResult(
-            provider="ollama",
-            command=command,
-            raw_output=command,
-            metadata={"model": model},
-        )
-    except ProviderExecutionError:
-        raise
-    except Exception as e:
-        raise ProviderExecutionError(f"Ollama synthesis failed: {e}") from e
+    raw = _extract_message_content(payload).strip()
+    parsed = parse_synthesis_output(raw)
+    return SynthesisResult(
+        provider="ollama",
+        command=parsed.command or "",
+        raw_output=raw,
+        tool=parsed.tool,
+        explanation=parsed.explanation,
+        alternatives=parsed.alternatives,
+        metadata={"model": model, "base_url": root},
+    )
 
 
-def warm_model(model: str, keep_alive: str | int | None = "30m") -> None:
-    """Best-effort: load *model* into memory so the first query is fast."""
-    ollama = _get_ollama_module()
-    kwargs: dict = {
+def warm_model(
+    model: str,
+    keep_alive: str | int | None = "30m",
+    base_url: str | None = None,
+) -> None:
+    """Best-effort warm-up so the first user query avoids cold model load."""
+    root = resolve_base_url(base_url)
+    body: dict[str, Any] = {
         "model": model,
         "messages": [{"role": "user", "content": "ping"}],
         "stream": False,
         "options": {"num_predict": 1},
     }
     if keep_alive is not None:
-        kwargs["keep_alive"] = keep_alive
+        body["keep_alive"] = keep_alive
     with contextlib.suppress(Exception):
-        # Warm-up is opportunistic; a failure here must never break setup.
-        ollama.chat(**kwargs)
+        _http_json(f"{root}/api/chat", body, timeout=15.0)
 
 
-def embed_texts(texts: list[str], model: str | None = None) -> np.ndarray:
-    if not is_available():
-        raise ProviderUnavailableError(
-            "Ollama daemon is missing or unreachable. Please start Ollama."
-        )
+def embed_texts(
+    texts: list[str],
+    model: str | None = None,
+    *,
+    base_url: str | None = None,
+    timeout_seconds: float = 30.0,
+) -> np.ndarray[Any, Any]:
+    """Generate float32 embeddings via Ollama ``POST /api/embed``."""
     if not model:
         raise ProviderConfigurationError("No model configured for Ollama embedding.")
+    if not texts:
+        return np.empty((0, 0), dtype=np.float32)
 
-    ollama = _get_ollama_module()
-
-    try:
-        response = ollama.embed(model=model, input=texts)
-        embeddings = getattr(response, "embeddings", None)
-        if embeddings is None and isinstance(response, dict):
-            embeddings = response.get("embeddings", [])
-        return np.array(embeddings or [], dtype=np.float32)
-    except Exception as e:
-        raise ProviderExecutionError(f"Ollama embedding failed: {e}") from e
+    root = resolve_base_url(base_url)
+    payload = _http_json(
+        f"{root}/api/embed",
+        {"model": model, "input": texts},
+        timeout=timeout_seconds,
+    )
+    embeddings = payload.get("embeddings")
+    if not isinstance(embeddings, list) or not embeddings:
+        raise ProviderExecutionError("Ollama /api/embed returned no embeddings.")
+    return np.asarray(embeddings, dtype=np.float32)

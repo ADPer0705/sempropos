@@ -1,15 +1,16 @@
-"""FastEmbed provider implementation for text embedding."""
+"""FastEmbed local ONNX embedding provider."""
 
 from __future__ import annotations
 
 import os
+from typing import Any
 
 import numpy as np
 
 # Silence HuggingFace Hub telemetry and symlink warnings before import
-os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
-os.environ["HF_HUB_DISABLE_EXPERIMENTAL_WARNING"] = "1"
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+os.environ.setdefault("HF_HUB_DISABLE_EXPERIMENTAL_WARNING", "1")
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
 from sempropos import config
 from sempropos.intelligence.contracts import (
@@ -20,21 +21,25 @@ from sempropos.intelligence.contracts import (
 
 try:
     from fastembed import TextEmbedding
+
     _HAS_FASTEMBED = True
 except ImportError:
+    TextEmbedding = None  # type: ignore[assignment,misc]
     _HAS_FASTEMBED = False
 
-# --- Cache the ONNX runtime in memory (singleton) ---
 _CACHED_MODEL_NAME: str | None = None
-_CACHED_ENGINE = None
-
-# Cap ONNX thread count to limit per-thread inference buffer allocation.
-# Each ONNX thread holds its own copy of intermediate activation tensors,
-# so unlimited threads on multi-core machines balloon memory fast.
+_CACHED_ENGINE: Any = None
 _ONNX_THREADS = min(os.cpu_count() or 2, 4)
+
 
 def is_available() -> bool:
     return _HAS_FASTEMBED
+
+
+def is_model_loaded() -> bool:
+    """Return True when an ONNX embedding model is already resident in memory."""
+    return _CACHED_ENGINE is not None
+
 
 def unload_model() -> None:
     """Release the cached ONNX model to free memory."""
@@ -42,33 +47,29 @@ def unload_model() -> None:
     _CACHED_ENGINE = None
     _CACHED_MODEL_NAME = None
 
+
 def get_available_models() -> list[str]:
     return [
         "nomic-ai/nomic-embed-text-v1.5-Q",
         "BAAI/bge-small-en-v1.5",
-        "sentence-transformers/all-MiniLM-L6-v2"
+        "sentence-transformers/all-MiniLM-L6-v2",
     ]
+
 
 def embed_texts(
     texts: list[str], model: str | None = None, kind: str = "document"
-) -> np.ndarray:
-    """Embed texts. ``kind`` selects the task-aware method when available.
-
-    Models such as ``nomic-embed-text`` and the BGE family expect different
-    prefixes for queries versus documents; FastEmbed exposes this through
-    ``query_embed`` and ``passage_embed``. Falling back to ``embed`` keeps the
-    provider working for models without instructions.
-    """
+) -> np.ndarray[Any, Any]:
+    """Embed texts using task-aware ``query_embed`` / ``passage_embed`` when supported."""
     global _CACHED_MODEL_NAME, _CACHED_ENGINE
 
-    if not is_available():
+    if not is_available() or TextEmbedding is None:
         raise ProviderUnavailableError("FastEmbed library is not installed.")
-
     if not model:
         raise ProviderConfigurationError("No model configured for FastEmbed embedding.")
+    if not texts:
+        return np.empty((0, 0), dtype=np.float32)
 
     try:
-        # Singleton pattern: Only load the heavy model into RAM ONCE per process
         if model != _CACHED_MODEL_NAME or _CACHED_ENGINE is None:
             _CACHED_MODEL_NAME = model
             _CACHED_ENGINE = TextEmbedding(
@@ -85,18 +86,14 @@ def embed_texts(
         else:
             gen = iter(engine.embed(texts))
 
-        # Consume the generator directly into a pre-allocated array to avoid
-        # intermediate Python lists and the extra copies from vstack + astype.
         first = next(gen)
-        dim = first.shape[0]
-
+        dim = int(first.shape[0])
         out = np.empty((len(texts), dim), dtype=np.float32)
         out[0] = first
         for idx, vec in enumerate(gen, start=1):
             out[idx] = vec
-
         return out
-    except StopIteration as e:
-        raise ProviderExecutionError("FastEmbed returned no embeddings.") from e
-    except Exception as e:
-        raise ProviderExecutionError(f"FastEmbed execution failed: {e}") from e
+    except StopIteration as exc:
+        raise ProviderExecutionError("FastEmbed returned no embeddings.") from exc
+    except Exception as exc:  # noqa: BLE001
+        raise ProviderExecutionError(f"FastEmbed execution failed: {exc}") from exc
