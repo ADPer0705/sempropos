@@ -1,11 +1,15 @@
-"""Indexing pipeline.
+"""Multi-source incremental indexing pipeline for sempropos.
 
-Design goals:
-  - Bounded memory: never hold more than a small window of man page texts, and
-    stream embeddings to disk batch-by-batch instead of building the whole
-    matrix in RAM.
-  - Incremental updates: only parse and embed rows that are missing.
-  - Crash-atomic metadata: ``index.meta`` is written only after a successful run.
+Pipeline stages:
+  1. Discover runnable ``$PATH`` binaries and symlink aliases.
+  2. Extract structured documentation fragments in parallel across enabled sources:
+     - Direct ``man(7)`` / ``mdoc(7)`` roff parser (with wide rendered fallback)
+     - Offline ``tldr-pages`` cache / archive (root + hyphenated subcommand pages)
+     - Static Fish / Zsh shell completions
+     - Safe ``--help`` probing for binaries absent from man pages (e.g. ``7z``, ``uv``)
+  3. Merge fragments deterministically into canonical :class:`ToolSpec` records.
+  4. Incrementally upsert changed/new tools by ``content_hash`` and prune removed binaries.
+  5. Sync L2-normalized tool-card embeddings incrementally by ``tool_id``.
 """
 
 from __future__ import annotations
@@ -13,86 +17,115 @@ from __future__ import annotations
 import contextlib
 import gc
 import os
+import sqlite3
 import tempfile
-from collections.abc import Generator
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import numpy as np
-from tqdm import tqdm
+from tqdm import tqdm  # type: ignore[import-untyped]
 
 from sempropos import config
-from sempropos.index import parser, schema
+from sempropos.index import repository, schema
 from sempropos.intelligence.facade import detect_embedding_provider, embed_texts
-from sempropos.sources.base import ToolRecord
-from sempropos.sources.man import ManSource
+from sempropos.model.spec import ToolSpec
+from sempropos.sources.completions import extract_completion_fragments
+from sempropos.sources.discovery import DiscoveryContext, discover_path_binaries
+from sempropos.sources.help_probe import HelpProbeFragment, is_safe_to_probe, probe_tool_help
+from sempropos.sources.man import extract_man_bundles
+from sempropos.sources.merger import (
+    ToolSourceBundle,
+    attach_symlink_aliases,
+    merge_tool_bundle,
+)
+from sempropos.sources.tldr import (
+    extract_tldr_fragments,
+    find_local_tldr_sources,
+    sync_tldr_archive,
+)
 from sempropos.utils import atomic_write_text
 
-# --- Pipeline tuning knobs ---
-# How many man page subprocesses to run concurrently.
-_MAN_READ_WORKERS = min(os.cpu_count() or 4, 8)
-# Cap in-flight futures (results retained in memory) to a small multiple of workers.
-_MAN_INFLIGHT_WINDOW = _MAN_READ_WORKERS * 2
-# How many parsed tools to accumulate before committing to the DB.
-_DB_COMMIT_BATCH = 50
-# How many text descriptions to embed in one model call.
+_DB_COMMIT_BATCH = 100
 _EMBED_BATCH = 64
-# How many existing embedding rows to copy to disk at a time when merging.
-_EMBED_COPY_CHUNK = 2048
+_PROBE_WORKERS = min(os.cpu_count() or 4, 8)
+_PROBE_INFLIGHT = _PROBE_WORKERS * 2
+
+
+@dataclass(frozen=True)
+class IndexBuildReport:
+    """Summary returned after an index build or incremental update."""
+
+    total_tools: int
+    updated_tools: int
+    unchanged_tools: int
+    removed_tools: int
+    total_flags: int
+    total_subcommands: int
+    total_examples: int
+    embedding_dim: int
+    embedding_provider: str
+    embedding_model: str
+    source_counts: dict[str, int] = field(default_factory=dict)
 
 
 # ============================================================================
-# Bounded, concurrent man page processing
+# Safe Concurrent --help Probing
 # ============================================================================
 
 
-def _iter_parsed_tools(
-    source: ManSource,
-    pending: list[ToolRecord],
+def _probe_missing_tools(
+    context: DiscoveryContext,
+    already_rich: set[str],
+    *,
+    timeout: float,
     progress: bool,
-) -> Generator[tuple[ToolRecord, parser.ParsedManPage], None, None]:
-    """Yield ``(record, parsed)`` with a bounded number of live man page texts.
+) -> dict[str, HelpProbeFragment]:
+    """Probe ``--help`` only for safe installed binaries lacking rich man documentation."""
+    candidates: list[tuple[str, Path]] = []
+    seen_canonical: set[str] = set()
+    for name, bin_path in sorted(context.binaries.items()):
+        canonical = context.canonical_name(name)
+        if canonical in already_rich or canonical in seen_canonical:
+            continue
+        if not is_safe_to_probe(canonical, bin_path):
+            continue
+        seen_canonical.add(canonical)
+        candidates.append((canonical, bin_path))
 
-    Older revisions submitted every tool at once and stored the futures in a
-    dict, which kept every completed man page string alive until the whole run
-    finished. This slides a fixed-size window instead, so peak memory stays
-    proportional to the worker count rather than the tool count.
-    """
-    if not pending:
-        return
+    if not candidates:
+        return {}
 
-    pbar = tqdm(total=len(pending), desc="Indexing", unit="tool") if progress else None
-    pending_iter = iter(pending)
-    in_flight: dict[Future, ToolRecord] = {}
+    pbar = tqdm(total=len(candidates), desc="Probing --help", unit="bin") if progress else None
+    results: dict[str, HelpProbeFragment] = {}
+    cand_iter = iter(candidates)
+    in_flight: dict[Future[HelpProbeFragment | None], str] = {}
 
-    with ThreadPoolExecutor(max_workers=_MAN_READ_WORKERS) as pool:
+    with ThreadPoolExecutor(max_workers=_PROBE_WORKERS) as pool:
 
         def submit_next() -> bool:
             try:
-                record = next(pending_iter)
+                name, bpath = next(cand_iter)
             except StopIteration:
                 return False
-            in_flight[pool.submit(source.load, record)] = record
+            in_flight[pool.submit(probe_tool_help, name, bpath, timeout=timeout)] = name
             return True
 
-        for _ in range(_MAN_INFLIGHT_WINDOW):
+        for _ in range(_PROBE_INFLIGHT):
             if not submit_next():
                 break
 
         while in_flight:
             done, _ = wait(in_flight, return_when=FIRST_COMPLETED)
-            for future in done:
-                record = in_flight.pop(future)
-                if pbar is not None:
-                    pbar.set_postfix_str(record.name)
+            for fut in done:
+                name = in_flight.pop(fut)
                 try:
-                    raw_page = future.result()
-                    if raw_page is None:
-                        raise RuntimeError(f"no man page for {record.name}")
-                    parsed = parser.parse_man_page(raw_page)
-                    yield record, parsed
-                except Exception:  # noqa: BLE001 — skip unreadable/unparseable pages
+                    frag = fut.result()
+                    if frag is not None:
+                        results[name] = frag
+                except Exception:  # noqa: BLE001
                     pass
                 finally:
                     if pbar is not None:
@@ -101,83 +134,17 @@ def _iter_parsed_tools(
 
     if pbar is not None:
         pbar.close()
+    return results
 
 
 # ============================================================================
-# Batch DB insertion
+# Tool-ID Keyed Incremental Embedding Sync
 # ============================================================================
 
 
-def _insert_tool(conn, record: ToolRecord, parsed: parser.ParsedManPage) -> None:
-    cursor = conn.execute(
-        """
-        INSERT INTO tools(name, section, description, synopsis)
-        VALUES (?, ?, ?, ?)
-        """,
-        (record.name, record.section, record.description, parsed.get("synopsis") or None),
-    )
-    tool_id = int(cursor.lastrowid)
-
-    for flag in parsed.get("flags", []):
-        conn.execute(
-            """
-            INSERT INTO flags(tool_id, flag, long_flag, takes_value, value_hint, description)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                tool_id,
-                flag.get("flag") or "*",
-                flag.get("long_flag"),
-                1 if flag.get("takes_value") else 0,
-                flag.get("value_hint"),
-                flag.get("description") or "",
-            ),
-        )
-
-    for example in parsed.get("examples", []):
-        conn.execute(
-            """
-            INSERT INTO examples(tool_id, command, context)
-            VALUES (?, ?, ?)
-            """,
-            (tool_id, example.get("command") or "", example.get("context")),
-        )
-
-
-def _ingest_tools(
-    conn,
-    source: ManSource,
-    pending: list[ToolRecord],
-    progress: bool,
-) -> None:
-    """Parse man pages via a bounded generator and batch-commit to the DB."""
-    batch_count = 0
-
-    for record, parsed in _iter_parsed_tools(source, pending, progress):
-        try:
-            _insert_tool(conn, record, parsed)
-            batch_count += 1
-        except Exception:  # noqa: BLE001
-            conn.rollback()
-            continue
-
-        if batch_count >= _DB_COMMIT_BATCH:
-            conn.commit()
-            batch_count = 0
-
-    if batch_count > 0:
-        conn.commit()
-
-
-# ============================================================================
-# Embedding persistence
-# ============================================================================
-
-
-def _atomic_save_npy(path: Path, values: np.ndarray) -> None:
+def _atomic_save_npy(path: Path, values: np.ndarray[Any, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temp_path: Path | None = None
-
     try:
         with tempfile.NamedTemporaryFile(
             mode="wb",
@@ -190,263 +157,121 @@ def _atomic_save_npy(path: Path, values: np.ndarray) -> None:
             np.save(handle, values)
             handle.flush()
             os.fsync(handle.fileno())
-
         os.replace(temp_path, path)
+        temp_path = None
     finally:
         if temp_path is not None and temp_path.exists():
             temp_path.unlink(missing_ok=True)
 
 
-def _embed_batch(texts: list[str]) -> np.ndarray:
-    """Embed a single batch of texts (already capped to ``_EMBED_BATCH`` size)."""
-    if not texts:
-        return np.empty((0, 0), dtype=np.float32)
-
-    safe_batch = [text[:2500] for text in texts]
-    return embed_texts(safe_batch)
-
-
-def _write_npy_header(handle, total: int, dim: int) -> None:
-    np.lib.format.write_array_header_2_0(
-        handle,
-        {
-            "descr": np.lib.format.dtype_to_descr(np.dtype(np.float32)),
-            "fortran_order": False,
-            "shape": (int(total), int(dim)),
-        },
-    )
+def _l2_normalize(matrix: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
+    if matrix.size == 0:
+        return matrix.astype(np.float32)
+    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    norms[norms == 0] = 1.0
+    return np.asarray(matrix / norms, dtype=np.float32)
 
 
-def _load_embedding_state(
+def _load_existing_vectors(
     emb_path: Path, ids_path: Path
-) -> tuple[np.ndarray, np.ndarray] | None:
-    """Load a persisted embedding matrix and its id vector, if aligned."""
+) -> dict[int, np.ndarray[Any, Any]] | None:
+    """Load existing ``{tool_id: unit_vector}`` map if aligned and readable."""
     if not (emb_path.exists() and ids_path.exists()):
         return None
-
     try:
-        embeddings = np.load(emb_path, mmap_mode="r")
+        matrix = np.load(emb_path)
         ids = np.load(ids_path)
-    except Exception:  # noqa: BLE001 — corrupt files are treated as absent
-        return None
-
-    if embeddings.ndim != 2 or ids.ndim != 1 or len(ids) != embeddings.shape[0]:
-        return None
-
-    return embeddings, ids
-
-
-def _infer_ids_from_matrix(
-    emb_path: Path, db_ids: np.ndarray
-) -> tuple[np.ndarray, np.ndarray] | None:
-    """Recover an id vector for legacy installs that lack ``*_embedding_ids.npy``.
-
-    Older revisions stored tool embeddings without a companion id file and
-    relied on row order matching ``SELECT id ORDER BY id``. This reconstructs
-    that mapping so an update stays incremental instead of re-embedding
-    everything.
-    """
-    if not emb_path.exists():
-        return None
-
-    try:
-        embeddings = np.load(emb_path, mmap_mode="r")
     except Exception:  # noqa: BLE001
         return None
 
-    if embeddings.ndim != 2 or embeddings.shape[0] == 0 or embeddings.shape[0] > len(db_ids):
+    if matrix.ndim != 2 or ids.ndim != 1 or len(ids) != matrix.shape[0]:
         return None
 
-    return embeddings, db_ids[: embeddings.shape[0]]
+    return {int(tid): matrix[idx].astype(np.float32) for idx, tid in enumerate(ids)}
 
 
-def _write_embeddings(
+def _sync_embeddings(
+    conn: sqlite3.Connection,
     *,
-    dest_emb_path: Path,
-    dest_ids_path: Path,
-    conn,
-    table: str,
-    existing: tuple[np.ndarray, np.ndarray] | None,
-    new_ids: np.ndarray,
-    label: str,
+    changed_ids: set[int],
     progress: bool,
+    force: bool,
 ) -> int:
-    """Write a complete embedding matrix plus id vector to disk in a streaming way.
+    """Synchronize L2-normalized tool-card embeddings incrementally by ``tool_id``.
 
-    Only one batch of vectors is ever resident, so indexing stays well within
-    modest memory budgets even for tens of thousands of rows.
+    Unchanged rows retain their existing vectors; only newly inserted or
+    content-modified ``tool_id``s are re-embedded, and deleted ``tool_id``s are
+    dropped cleanly.
     """
-    existing_embeddings = existing[0] if existing is not None else None
-    existing_ids = existing[1] if existing is not None else None
-    n_existing = 0 if existing_ids is None else int(len(existing_ids))
-    total = n_existing + int(len(new_ids))
+    emb_path = config.tool_embeddings_path()
+    ids_path = config.tool_embedding_ids_path()
 
-    dest_emb_path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path: Path | None = None
-    pbar = tqdm(total=total, desc=label, unit="text") if progress else None
-    dim = 0
-    written = 0
+    db_ids = [int(row["id"]) for row in conn.execute("SELECT id FROM tools ORDER BY id").fetchall()]
+    if not db_ids:
+        _atomic_save_npy(emb_path, np.empty((0, 0), dtype=np.float32))
+        _atomic_save_npy(ids_path, np.empty(0, dtype=np.int32))
+        return 0
 
+    existing_map = None if force else _load_existing_vectors(emb_path, ids_path)
+    reusable: dict[int, np.ndarray[Any, Any]] = {}
+    to_embed: list[int] = []
+
+    for tid in db_ids:
+        if existing_map is not None and tid in existing_map and tid not in changed_ids:
+            reusable[tid] = existing_map[tid]
+        else:
+            to_embed.append(tid)
+
+    # Fast no-op when every active row already has a valid vector and count matches.
+    if (
+        not to_embed
+        and existing_map is not None
+        and len(existing_map) == len(db_ids)
+        and emb_path.exists()
+        and ids_path.exists()
+    ):
+        first_vec = next(iter(reusable.values()))
+        return int(first_vec.shape[0])
+
+    new_vectors: dict[int, np.ndarray[Any, Any]] = {}
+    dim = int(next(iter(reusable.values())).shape[0]) if reusable else 0
+
+    pbar = tqdm(total=len(to_embed), desc="Embedding tools", unit="tool") if (progress and to_embed) else None
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="wb",
-            dir=dest_emb_path.parent,
-            prefix=f"{dest_emb_path.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as handle:
-            temp_path = Path(handle.name)
-
-            if total == 0:
-                np.save(handle, np.empty((0, 0), dtype=np.float32))
-            else:
-                # 1. Copy already-indexed rows straight through (mmap → disk).
-                if n_existing and existing_embeddings is not None:
-                    dim = int(existing_embeddings.shape[1])
-                    _write_npy_header(handle, total, dim)
-                    for start in range(0, n_existing, _EMBED_COPY_CHUNK):
-                        block = np.ascontiguousarray(
-                            existing_embeddings[start : start + _EMBED_COPY_CHUNK],
-                            dtype=np.float32,
-                        )
-                        handle.write(block.tobytes())
-                        written += int(len(block))
-                        if pbar is not None:
-                            pbar.update(int(len(block)))
-                        del block
-
-                # 2. Embed genuinely new rows in batches.
-                for start in range(0, len(new_ids), _EMBED_BATCH):
-                    batch = [int(value) for value in new_ids[start : start + _EMBED_BATCH]]
-                    placeholders = ",".join("?" for _ in batch)
-                    rows = conn.execute(
-                        f"SELECT description FROM {table} "
-                        f"WHERE id IN ({placeholders}) ORDER BY id",
-                        batch,
-                    ).fetchall()
-                    vectors = _embed_batch([row["description"] or "" for row in rows])
-                    if vectors.size == 0:
-                        continue
-                    if dim == 0:
-                        dim = int(vectors.shape[1]) if vectors.ndim == 2 else 0
-                        _write_npy_header(handle, total, dim)
-                    block = np.ascontiguousarray(vectors, dtype=np.float32)
-                    handle.write(block.tobytes())
-                    written += int(len(block))
-                    if pbar is not None:
-                        pbar.update(len(batch))
-                    del block, vectors, rows
-
-            handle.flush()
-            os.fsync(handle.fileno())
-
-        if written != total:
-            raise RuntimeError(
-                f"Embedding write for '{table}' is incomplete ({written}/{total})."
-            )
-
-        os.replace(temp_path, dest_emb_path)
-        temp_path = None
+        for start in range(0, len(to_embed), _EMBED_BATCH):
+            batch_ids = to_embed[start : start + _EMBED_BATCH]
+            texts = [repository.get_embedding_text_for_id(conn, tid)[:2200] for tid in batch_ids]
+            raw_vecs = embed_texts(texts, kind="document")
+            if raw_vecs.ndim != 2 or raw_vecs.shape[0] != len(batch_ids):
+                raise RuntimeError("Embedding provider returned unexpected vector shape.")
+            norm_vecs = _l2_normalize(raw_vecs)
+            dim = int(norm_vecs.shape[1])
+            for idx, tid in enumerate(batch_ids):
+                new_vectors[tid] = norm_vecs[idx]
+            if pbar is not None:
+                pbar.update(len(batch_ids))
     finally:
         if pbar is not None:
             pbar.close()
-        if temp_path is not None and temp_path.exists():
-            temp_path.unlink(missing_ok=True)
 
-    merged_ids = new_ids if existing_ids is None else np.concatenate([existing_ids, new_ids])
-    _atomic_save_npy(dest_ids_path, np.ascontiguousarray(merged_ids, dtype=np.int32))
-    del merged_ids
+    if dim <= 0:
+        raise RuntimeError("Unable to determine embedding dimension from indexed data.")
+
+    merged = np.empty((len(db_ids), dim), dtype=np.float32)
+    for idx, tid in enumerate(db_ids):
+        vec = new_vectors.get(tid)
+        if vec is None:
+            vec = reusable[tid]
+        merged[idx] = vec
+
+    _atomic_save_npy(emb_path, merged)
+    _atomic_save_npy(ids_path, np.asarray(db_ids, dtype=np.int32))
+    del merged, reusable, new_vectors, existing_map
     gc.collect()
-
     return dim
 
 
-def _sync_embeddings(conn, progress: bool, force: bool = False) -> int:
-    """Bring the tool embedding file in sync with the database.
-
-    Existing vectors are reused when they are a valid prefix of the current id
-    sequence; only genuinely new rows are embedded. When ``force`` is set (or the
-    stored state is unusable) the whole matrix is rebuilt.
-
-    Flags are intentionally *not* embedded: they are ranked with FTS5 at query
-    time, which keeps indexing fast and avoids a large in-memory vector file.
-    """
-    embedding_dim = 0
-
-    targets = (
-        ("tools", config.tool_embeddings_path(), config.tool_embedding_ids_path(), "Embedding tools"),
-    )
-
-    for table, emb_path, ids_path, label in targets:
-        db_ids = np.array(
-            [int(row["id"]) for row in conn.execute(f"SELECT id FROM {table} ORDER BY id")],
-            dtype=np.int32,
-        )
-
-        if len(db_ids) == 0:
-            _atomic_save_npy(emb_path, np.empty((0, 0), dtype=np.float32))
-            _atomic_save_npy(ids_path, np.empty(0, dtype=np.int32))
-            continue
-
-        state = None if force else _load_embedding_state(emb_path, ids_path)
-        if state is None and not force:
-            state = _infer_ids_from_matrix(emb_path, db_ids)
-
-        usable = (
-            state is not None
-            and len(state[1]) <= len(db_ids)
-            and len(state[1]) == state[0].shape[0]
-            and np.array_equal(state[1], db_ids[: len(state[1])])
-        )
-
-        if usable:
-            existing_embeddings, existing_ids = state  # type: ignore[misc]
-            new_ids = db_ids[len(existing_ids) :]
-
-            if len(new_ids) == 0:
-                # Nothing new: keep the files as-is, but migrate missing id files.
-                dim = int(existing_embeddings.shape[1]) if existing_embeddings.ndim == 2 else 0
-                if not ids_path.exists():
-                    _atomic_save_npy(
-                        ids_path, np.ascontiguousarray(existing_ids, dtype=np.int32)
-                    )
-            else:
-                dim = _write_embeddings(
-                    dest_emb_path=emb_path,
-                    dest_ids_path=ids_path,
-                    conn=conn,
-                    table=table,
-                    existing=(existing_embeddings, existing_ids),
-                    new_ids=new_ids,
-                    label=label,
-                    progress=progress,
-                )
-        else:
-            dim = _write_embeddings(
-                dest_emb_path=emb_path,
-                dest_ids_path=ids_path,
-                conn=conn,
-                table=table,
-                existing=None,
-                new_ids=db_ids,
-                label=label,
-                progress=progress,
-            )
-
-        del state
-        gc.collect()
-
-        if dim > 0:
-            embedding_dim = dim
-
-    if embedding_dim <= 0:
-        raise RuntimeError("Unable to determine embedding dimension from indexed data.")
-
-    return embedding_dim
-
-
 def _unload_embedding_model() -> None:
-    """Release the cached embedding model to free memory."""
     try:
         from sempropos.intelligence.providers import _fastembed as fe
 
@@ -456,112 +281,214 @@ def _unload_embedding_model() -> None:
     gc.collect()
 
 
-# ============================================================================
-# Index cleanup
-# ============================================================================
-
-
 def _clear_index_data() -> None:
     """Wipe existing database and embedding files for a clean rebuild."""
-    paths = [
+    for path in (
         config.db_path(),
+        Path(f"{config.db_path()}-wal"),
+        Path(f"{config.db_path()}-shm"),
         config.tool_embeddings_path(),
         config.tool_embedding_ids_path(),
         config.index_meta_path(),
         config.last_indexed_path(),
-    ]
-    for path in paths:
-        if path.exists():
-            with contextlib.suppress(OSError):
-                path.unlink()
+    ):
+        with contextlib.suppress(OSError):
+            path.unlink(missing_ok=True)
 
 
 # ============================================================================
-# Main entry point
+# Main Entry Point
 # ============================================================================
 
 
-def build_index(progress: bool = True, force: bool = False) -> None:
-    """Build or incrementally update the local index.
-
-    Args:
-        progress: Show progress bars for parsing and embedding.
-        force: Delete the existing index first and rebuild from scratch.
-    """
+def build_index(  # noqa: C901
+    progress: bool = True,
+    force: bool = False,
+    *,
+    offline: bool = False,
+    enable_tldr: bool | None = None,
+    enable_completions: bool | None = None,
+    probe_help: bool | None = None,
+    skip_embeddings: bool = False,
+) -> IndexBuildReport:
+    """Build or incrementally update the local structured ToolSpec index."""
     config.ensure_data_dirs()
+    app_cfg = config.load_config()
 
-    # Read metadata before any wipe so a parser/format change can trigger a full
-    # rebuild instead of leaving stale rows in place.
+    use_tldr = app_cfg.indexing.enable_tldr if enable_tldr is None else enable_tldr
+    use_completions = (
+        app_cfg.indexing.enable_completions if enable_completions is None else enable_completions
+    )
+    use_probe = app_cfg.indexing.probe_help if probe_help is None else probe_help
+
     meta = config.read_index_meta() or {}
     try:
-        stored_index_revision = int(meta.get("index_revision") or 0)
+        stored_index_rev = int(meta.get("index_revision") or 0)
     except (TypeError, ValueError):
-        stored_index_revision = 0
+        stored_index_rev = 0
 
-    full_rebuild = force or stored_index_revision != config.INDEX_REVISION
+    full_rebuild = force or stored_index_rev != config.INDEX_REVISION
+    if not full_rebuild and config.db_path().exists():
+        try:
+            with schema.get_connection(read_only=True) as check_conn:
+                if schema.read_schema_version(check_conn) != config.INDEX_REVISION:
+                    full_rebuild = True
+        except sqlite3.Error:
+            full_rebuild = True
+
     if full_rebuild:
         _clear_index_data()
 
     schema.initialize_database()
 
-    embedding_provider, embedding_provider_config = detect_embedding_provider()
-    current_provider = embedding_provider or ""
-    current_model = (embedding_provider_config.model if embedding_provider_config else None) or ""
+    # Determine embedding strategy early so configuration issues fail fast.
+    if skip_embeddings or app_cfg.embedding.provider == "none":
+        current_embed_provider = "none"
+        current_embed_model = ""
+    else:
+        embed_provider, embed_cfg = detect_embedding_provider()
+        current_embed_provider = embed_provider
+        current_embed_model = embed_cfg.model or ""
 
-    source = ManSource()
-    tools = list(source.discover())
-    if not tools:
-        raise RuntimeError("No installed tools discovered via man -k")
+    # Stage 1: Discover installed runnable binaries and symlink aliases.
+    discovery = discover_path_binaries()
+    if not discovery.binaries:
+        raise RuntimeError("No executable binaries were discovered on PATH.")
+
+    # Stage 2: Extract multi-source structured fragments.
+    man_bundles = extract_man_bundles(discovery)
+
+    tldr_frags = {}
+    if use_tldr:
+        if not offline and not find_local_tldr_sources():
+            with contextlib.suppress(Exception):
+                sync_tldr_archive()
+        tldr_frags = extract_tldr_fragments(discovery)
+
+    comp_frags = extract_completion_fragments(discovery) if use_completions else {}
+
+    probe_frags: dict[str, HelpProbeFragment] = {}
+    if use_probe:
+        # Probe binaries absent from man OR whose man page yielded neither flags nor subcommands.
+        already_rich = {
+            name
+            for name, mb in man_bundles.items()
+            if mb.doc.flags or mb.doc.subcommands
+        }
+        probe_frags = _probe_missing_tools(
+            discovery,
+            already_rich,
+            timeout=app_cfg.indexing.help_probe_timeout,
+            progress=progress,
+        )
+
+    # Stage 3: Assemble bundles and merge into canonical ToolSpec objects.
+    all_names = (
+        set(man_bundles) | set(tldr_frags) | set(comp_frags) | set(probe_frags)
+    )
+    bundles: dict[str, ToolSourceBundle] = {}
+    for name in sorted(all_names):
+        bpath = discovery.binaries.get(name)
+        bundles[name] = ToolSourceBundle(
+            name=name,
+            binary_path=str(bpath) if bpath else None,
+            man=man_bundles.get(name),
+            tldr=tldr_frags.get(name),
+            completion=comp_frags.get(name),
+            help_probe=probe_frags.get(name),
+        )
+    attach_symlink_aliases(bundles, discovery)
+
+    specs: list[ToolSpec] = []
+    for name in sorted(bundles):
+        merged = merge_tool_bundle(bundles[name])
+        if merged is not None:
+            specs.append(merged)
+
+    if not specs:
+        raise RuntimeError("No tool documentation could be extracted from any configured source.")
+
+    # Stage 4: Incremental DB upsert + pruning of uninstalled tools.
+    changed_ids: set[int] = set()
+    updated_count = 0
+    unchanged_count = 0
+    active_names = {spec.name for spec in specs}
 
     with schema.get_connection() as conn:
-        if full_rebuild:
-            pending = tools
-            force_embeddings = True
-        else:
-            existing = {
-                (row["name"], row["section"])
-                for row in conn.execute("SELECT name, section FROM tools").fetchall()
-            }
-            pending = [
-                record for record in tools if (record.name, record.section) not in existing
-            ]
+        removed_ids = repository.delete_tools_not_in(conn, active_names)
+        pbar = tqdm(total=len(specs), desc="Indexing tools", unit="tool") if progress else None
+        batch_count = 0
+        try:
+            for spec in specs:
+                tool_id, changed = repository.upsert_tool(conn, spec)
+                if changed:
+                    changed_ids.add(tool_id)
+                    updated_count += 1
+                else:
+                    unchanged_count += 1
+                batch_count += 1
+                if batch_count >= _DB_COMMIT_BATCH:
+                    conn.commit()
+                    batch_count = 0
+                if pbar is not None:
+                    pbar.update(1)
+            if batch_count > 0:
+                conn.commit()
+        finally:
+            if pbar is not None:
+                pbar.close()
 
-            # If the embedding backend or representation changed since the last
-            # run, existing vectors are meaningless: re-embed even if the parsed
-            # rows are still valid.
+        # Stage 5: Sync embeddings incrementally by tool_id.
+        if current_embed_provider == "none":
+            embedding_dim = 0
+        else:
             stored_provider = str(meta.get("embedding_provider") or "")
             stored_model = str(meta.get("embedding_model") or "")
             try:
-                stored_revision = int(meta.get("embedding_revision") or 0)
+                stored_embed_rev = int(meta.get("embedding_revision") or 0)
             except (TypeError, ValueError):
-                stored_revision = 0
+                stored_embed_rev = 0
             force_embeddings = (
-                stored_provider != current_provider
-                or stored_model != current_model
-                or stored_revision != config.EMBEDDING_REVISION
+                full_rebuild
+                or stored_provider != current_embed_provider
+                or stored_model != current_embed_model
+                or stored_embed_rev != config.EMBEDDING_REVISION
+            )
+            embedding_dim = _sync_embeddings(
+                conn,
+                changed_ids=changed_ids,
+                progress=progress,
+                force=force_embeddings,
             )
 
-        # Phase 1: parse man pages and insert new tools.
-        _ingest_tools(conn, source, pending, progress)
+        stats = repository.index_stats(conn)
 
-        # Phase 2: bring embeddings in sync (incremental unless forced).
-        embedding_dim = _sync_embeddings(conn, progress=progress, force=force_embeddings)
-
-        tool_count = int(conn.execute("SELECT COUNT(*) FROM tools").fetchone()[0])
-        flag_count = int(conn.execute("SELECT COUNT(*) FROM flags").fetchone()[0])
-
-    # Phase 3: release the embedding model before writing metadata.
     _unload_embedding_model()
 
     atomic_write_text(
         config.last_indexed_path(),
         datetime.now(tz=UTC).isoformat(),
     )
-
     config.write_index_meta(
         embedding_dim=embedding_dim,
-        embedding_model=current_model,
-        embedding_provider=current_provider,
-        tool_count=tool_count,
-        flag_count=flag_count,
+        embedding_model=current_embed_model,
+        embedding_provider=current_embed_provider,
+        tool_count=stats.tool_count,
+        flag_count=stats.flag_count,
+        subcommand_count=stats.subcommand_count,
+        example_count=stats.example_count,
+    )
+
+    return IndexBuildReport(
+        total_tools=stats.tool_count,
+        updated_tools=updated_count,
+        unchanged_tools=unchanged_count,
+        removed_tools=len(removed_ids),
+        total_flags=stats.flag_count,
+        total_subcommands=stats.subcommand_count,
+        total_examples=stats.example_count,
+        embedding_dim=embedding_dim,
+        embedding_provider=current_embed_provider,
+        embedding_model=current_embed_model,
+        source_counts=stats.source_counts,
     )

@@ -1,9 +1,4 @@
-"""
-Index staleness checks based on package database mtimes.
-
-This module checks if current embeddings are stale.
-This is done by comparing the last indexed timestamp with the modification time of the package database.
-"""
+"""Index staleness checks across package managers and user binary directories."""
 
 from __future__ import annotations
 
@@ -12,42 +7,51 @@ from pathlib import Path
 
 from sempropos import config
 
-# Known package database paths for common Linux distributions.
-# NOTE: This is a heuristic and may not cover all cases or distributions.
-PACKAGE_DB_PATHS = {
+# Installed-package database locations (fixes Arch pacman/local vs sync).
+PACKAGE_DB_PATHS: dict[str, str] = {
     "debian": "/var/lib/dpkg/status",
-    "arch": "/var/lib/pacman/sync",
-    "fedora": "/var/lib/rpm/rpmdb.sqlite",  # Updated for modern dnf/rpm
+    "arch": "/var/lib/pacman/local",
+    "fedora": "/var/lib/rpm/rpmdb.sqlite",
+    "rpm_legacy": "/var/lib/rpm/Packages",
     "alpine": "/lib/apk/db/installed",
+    "homebrew_arm": "/opt/homebrew/Cellar",
+    "homebrew_intel": "/usr/local/Cellar",
+    "nix": "/nix/var/nix/profiles/default",
 }
 
 
 def detect_package_db() -> str | None:
-    """
-    Return the first known package database path that exists locally.
-
-    Returns:
-        Str if the path to the package database if found, otherwise None.
-    """
+    """Return the first known installed-package database path present locally."""
     for path in PACKAGE_DB_PATHS.values():
         if Path(path).exists():
             return path
     return None
 
 
-def read_last_indexed() -> datetime | None:
-    """
-    Read the last_indexed timestamp marker as an ISO datetime.
+def watched_paths() -> list[Path]:
+    """Return all package DBs and user bin directories whose changes imply staleness."""
+    paths: list[Path] = []
+    pkg = detect_package_db()
+    if pkg:
+        paths.append(Path(pkg))
 
-    Returns:
-        Datetime if the marker exists and is valid.
-        None if the marker file is missing, empty, or contains invalid data.
-    """
+    home = Path.home()
+    for user_bin in (home / ".local" / "bin", home / ".cargo" / "bin"):
+        if user_bin.is_dir():
+            paths.append(user_bin)
+    return paths
+
+
+def read_last_indexed() -> datetime | None:
+    """Read the last_indexed timestamp marker as an ISO datetime."""
     marker = config.last_indexed_path()
     if not marker.exists():
         return None
 
-    raw = marker.read_text(encoding="utf-8").strip()
+    try:
+        raw = marker.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
     if not raw:
         return None
 
@@ -58,37 +62,22 @@ def read_last_indexed() -> datetime | None:
 
 
 def _to_utc_timestamp(value: datetime) -> float:
-    """
-    Convert datetime to epoch seconds in UTC consistently.
-
-    Args:
-        value: The datetime to convert.
-
-    Returns:
-        Float representing the epoch seconds in UTC.
-    """
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC).timestamp()
     return value.astimezone(UTC).timestamp()
 
 
 def is_index_stale() -> bool:
-    """
-    Return True when package metadata is newer than the last index run.
-
-    Returns:
-        Bool indicating if the index is stale.
-    """
+    """Return True when installed software or user bin dirs changed since last index."""
     last_indexed = read_last_indexed()
     if last_indexed is None:
         return True
 
-    db_path = detect_package_db()
-    if db_path is None:
-        return False
-
-    last_indexed_ts = _to_utc_timestamp(last_indexed)
-
-    pkg_mtime_ts = Path(db_path).stat().st_mtime
-    return pkg_mtime_ts > last_indexed_ts
-
+    last_ts = _to_utc_timestamp(last_indexed)
+    for path in watched_paths():
+        try:
+            if path.stat().st_mtime > last_ts:
+                return True
+        except OSError:
+            continue
+    return False
