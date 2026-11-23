@@ -17,18 +17,14 @@ from sempropos.intelligence.contracts import (
     SynthesisResult,
 )
 from sempropos.intelligence.prompt import context_to_str
-from sempropos.utils import install_and_import
 
 
 def _get_ollama_module():
-    """Ensure the ollama SDK is installed and return the module reference."""
+    """Return the ollama SDK module if installed."""
     if not importlib.util.find_spec("ollama"):
-        try:
-            install_and_import("ollama")
-        except Exception as e:
-            raise ProviderUnavailableError(
-                f"Ollama SDK is not installed and could not be installed automatically: {e}"
-            ) from e
+        raise ProviderUnavailableError(
+            "Ollama SDK is not installed."
+        )
 
     import ollama
 

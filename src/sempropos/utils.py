@@ -1,47 +1,40 @@
-"""
-Utilities and helper functions for sempropos.
+"""Utilities and helper functions for sempropos.
 
-This module provides shared, reusable helper logic including:
-    - Keyring integration for secure secret storage (optional, depends on `keyring` package).
-    - Atomic file writing utilities to ensure safe updates to files without risking corruption.
-    - Miscellaneous utilities such as environment detection.
+Provides:
+    - Keyring integration for secure secret storage (optional).
+    - Atomic file writing utilities to avoid corrupt state on crash.
+    - Terminal / headless environment detection.
 """
 
 from __future__ import annotations
 
-import importlib.util
 import os
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
-# ----- Miscellaneous utilities -----
 
 def is_headless_environment() -> bool:
-    """Detect if running in headless (non-interactive) environment."""
+    """Detect if running in a non-interactive environment."""
     return not (sys.stdin.isatty() and sys.stdout.isatty())
 
-def install_and_import(package: str) -> None:
-    """Dynamically install and import a package if it's not already available."""
-    if importlib.util.find_spec(package) is not None:
-        return importlib.import_module(package)
 
-    try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+def should_disable_color() -> bool:
+    """Return True when ANSI colors should be suppressed (NO_COLOR or non-TTY)."""
+    if os.environ.get("NO_COLOR") is not None:
+        return True
+    return not sys.stdout.isatty()
 
-        return importlib.import_module(package)
-    except subprocess.CalledProcessError as e:
-        raise ImportError(f"Failed to install package '{package}'. Please install it manually. Error: {e}") from e
 
 # ==================================================
 # Keyring integration utilities
 # ==================================================
 
+
 def keyring_store_secret(secret_name: str, value: str) -> bool:
     """Store a secret in the system keyring (if available)."""
     try:
-        import keyring  # type: ignore[import-not-found]
+        import keyring
     except ModuleNotFoundError:
         return False
 
@@ -55,7 +48,7 @@ def keyring_store_secret(secret_name: str, value: str) -> bool:
 def keyring_load_secret(secret_name: str) -> str | None:
     """Retrieve a secret from the system keyring (if available)."""
     try:
-        import keyring  # type: ignore[import-not-found]
+        import keyring
     except ModuleNotFoundError:
         return None
 
@@ -71,10 +64,11 @@ def keyring_load_secret(secret_name: str) -> str | None:
 # Atomic file writing utilities
 # ==================================================
 
+
 def atomic_write_text(path: Path, content: str) -> None:
     """Write text to a file atomically using tempfile and os.replace."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = None
+    tmp_path: str | None = None
 
     try:
         with tempfile.NamedTemporaryFile(
@@ -98,7 +92,7 @@ def atomic_write_text(path: Path, content: str) -> None:
 def atomic_write_bytes(path: Path, content: bytes) -> None:
     """Write bytes to a file atomically using tempfile and os.replace."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = None
+    tmp_path: str | None = None
 
     try:
         with tempfile.NamedTemporaryFile(

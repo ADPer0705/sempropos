@@ -467,8 +467,6 @@ def _clear_index_data() -> None:
         config.db_path(),
         config.tool_embeddings_path(),
         config.tool_embedding_ids_path(),
-        config.flag_embeddings_path(),
-        config.flag_embedding_ids_path(),
         config.index_meta_path(),
         config.last_indexed_path(),
     ]
