@@ -1,18 +1,37 @@
 """Retrieval modules for sempropos."""
 
-from sempropos.retrieval.bm25 import query_bm25_ranking
-from sempropos.retrieval.expansion import expand_query, primary_tokens, tokenize
-from sempropos.retrieval.flag_retrieval import get_relevant_flags
-from sempropos.retrieval.fusion import hybrid_fusion, reciprocal_rank_fusion
-from sempropos.retrieval.semantic import query_semantic_matches
+from sempropos.retrieval.bm25 import build_fts_query, query_bm25_ranking
+from sempropos.retrieval.expansion import expand_query, expand_weighted, primary_tokens, tokenize
+from sempropos.retrieval.flag_retrieval import (
+    get_relevant_examples,
+    get_relevant_flags,
+    get_relevant_subcommands,
+    load_candidates,
+)
+from sempropos.retrieval.fusion import hybrid_fusion, should_run_semantic
+from sempropos.retrieval.query import AnalyzedQuery, analyze_query
+from sempropos.retrieval.semantic import (
+    is_embeddings_loaded,
+    query_semantic_matches,
+    reload_embeddings,
+)
 
 __all__ = [
-    "expand_query",
+    "AnalyzedQuery",
+    "analyze_query",
     "tokenize",
     "primary_tokens",
+    "expand_weighted",
+    "expand_query",
+    "build_fts_query",
     "query_bm25_ranking",
     "query_semantic_matches",
+    "reload_embeddings",
+    "is_embeddings_loaded",
     "hybrid_fusion",
-    "reciprocal_rank_fusion",
+    "should_run_semantic",
+    "get_relevant_subcommands",
     "get_relevant_flags",
+    "get_relevant_examples",
+    "load_candidates",
 ]

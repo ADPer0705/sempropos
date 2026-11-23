@@ -1,36 +1,46 @@
-"""Ranking fusion for hybrid retrieval.
+"""Confidence-gated BM25-primary hybrid ranking fusion.
 
-BM25 is deliberately the primary signal. It is the only ranker that can match a
-tool by its exact name, which is what users ask for most of the time ("find",
-"ss", "tar"). Embedding similarity is computed over one-line man-page
-descriptions, so it is a weak and noisy signal and must not be allowed to
-outrank a confident lexical hit.
-
-Recall is the semantic list's job here, not re-ranking: tools it surfaces that
-BM25 missed are appended after the lexical ranking. That tail is intentional —
-do not "fix" this back into a symmetric score blend. Min-max normalising two
-differently shaped score distributions stretches a tiny cosine gap into a full
-0-1 range, which lets the embedding outvote an exact-name match.
+BM25 over structured multi-field ToolSpecs is the primary signal. Semantic
+vector similarity breaks lexical ties and provides conceptual recall when
+lexical matches are weak or absent. When running cold (no warm daemon),
+high-confidence lexical hits skip loading the ONNX embedding model entirely
+to keep single-shot CLI queries instant.
 """
 
 from __future__ import annotations
 
+from sempropos.retrieval.query import AnalyzedQuery
 
-def reciprocal_rank_fusion(
-    results: list[list[tuple[int, float]]],
-    k: int = 60,
-) -> list[tuple[int, float]]:
-    """Combine ranked lists using standard reciprocal rank fusion."""
-    if k <= 0:
-        raise ValueError("k must be greater than zero")
+# Thresholds for skipping cold embedding load when lexical ranking is already decisive.
+_HIGH_CONFIDENCE_SCORE = 1.65
+_HIGH_CONFIDENCE_MARGIN = 0.45
 
-    scores: dict[int, float] = {}
 
-    for result_list in results:
-        for rank, (tool_id, _score) in enumerate(result_list, start=1):
-            scores[tool_id] = scores.get(tool_id, 0.0) + (1.0 / (k + rank))
+def should_run_semantic(
+    bm25_results: list[tuple[int, float]],
+    analyzed: AnalyzedQuery,
+    *,
+    lazy_fallback: bool = True,
+    embeddings_warm: bool = False,
+) -> bool:
+    """Decide whether to invoke semantic retrieval for ``analyzed``.
 
-    return sorted(scores.items(), key=lambda item: (-item[1], item[0]))
+    Always runs when vectors + model are already warm in memory (daemon mode) or
+    when ``lazy_fallback`` is disabled. Otherwise skips cold ONNX startup when
+    BM25 already found a decisive top match.
+    """
+    if embeddings_warm or not lazy_fallback:
+        return True
+    if not bm25_results:
+        return True
+
+    top_score = bm25_results[0][1]
+    second_score = bm25_results[1][1] if len(bm25_results) > 1 else 0.0
+    margin = top_score - second_score
+
+    if analyzed.artifact_boosts and top_score >= 1.5:
+        return False
+    return not (top_score >= _HIGH_CONFIDENCE_SCORE and margin >= _HIGH_CONFIDENCE_MARGIN)
 
 
 def hybrid_fusion(
@@ -40,19 +50,11 @@ def hybrid_fusion(
     k: int = 60,
     semantic_recall_limit: int | None = None,
 ) -> list[tuple[int, float]]:
-    """Combine lexical and semantic results, keeping BM25 in the driver's seat.
+    """Combine lexical and semantic results while keeping BM25 primary.
 
-    The lexical order is preserved; the embedding may only break exact score ties
-    (where two tools are indistinguishable to BM25, the semantically closer one
-    wins) and append recall hits that BM25 missed entirely. The returned scores
-    are rank-based and non-increasing, so downstream sorting cannot undo the
-    lexical order.
-
-    Args:
-        bm25_results: Lexical results as ``(tool_id, score)``, best first.
-        semantic_results: Semantic results as ``(tool_id, score)``, best first.
-        k: RRF smoothing constant; only shapes the reported scores.
-        semantic_recall_limit: Optional cap on appended semantic-only hits.
+    Lexical ordering dominates: semantic similarity breaks exact BM25 ties and
+    appends conceptual recall hits that BM25 missed entirely. Returned scores
+    are strictly non-increasing rank-based values.
     """
     if k <= 0:
         raise ValueError("k must be greater than zero")
@@ -62,8 +64,6 @@ def hybrid_fusion(
     }
     missing_rank = len(semantic_rank) + 1
 
-    # Lexical order dominates. The semantic rank only matters when BM25 scores are
-    # exactly equal, so an embedding can never leapfrog a stronger lexical match.
     ordered = sorted(
         bm25_results,
         key=lambda item: (-item[1], semantic_rank.get(item[0], missing_rank), item[0]),
@@ -76,6 +76,6 @@ def hybrid_fusion(
     if semantic_recall_limit is not None:
         recall = recall[:semantic_recall_limit]
 
-    # Intentional recall tail: semantic-only hits rank below every lexical match.
+    # Semantic-only recall tail always ranks strictly below confident lexical hits.
     fused.extend((tool_id, 0.0) for tool_id, _score in recall)
     return fused
