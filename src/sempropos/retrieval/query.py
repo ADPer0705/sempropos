@@ -128,35 +128,77 @@ _EXTENSION_TOOL_MAP: dict[str, tuple[str, ...]] = {
 
 # Compound natural-language intent rules: (required_token_groups, boosted_tools)
 # Each rule matches when EVERY group has at least one token/phrase present in the query.
-_COMPOUND_INTENT_RULES: tuple[tuple[tuple[tuple[str, ...], ...], tuple[tuple[str, float], ...]], ...] = (
+_COMPOUND_INTENT_RULES: tuple[
+    tuple[tuple[tuple[str, ...], ...], tuple[tuple[str, float], ...]], ...
+] = (
     # "show disk usage by folder" / "directory size" -> du
     (
-        (("disk", "space", "storage", "size"), ("usage", "size", "folder", "folders", "directory", "directories", "dir")),
+        (
+            ("disk", "space", "storage", "size"),
+            ("usage", "size", "folder", "folders", "directory", "directories", "dir"),
+        ),
         (("du", 1.35), ("df", 0.55)),
     ),
     # "free disk space" / "mounted filesystems" -> df
     (
-        (("free", "available", "mounted", "filesystem", "filesystems"), ("disk", "space", "storage", "partition", "partitions")),
+        (
+            ("free", "available", "mounted", "filesystem", "filesystems"),
+            ("disk", "space", "storage", "partition", "partitions"),
+        ),
         (("df", 1.35), ("lsblk", 0.7), ("du", 0.4)),
     ),
     # "open ports" / "listening tcp ports" / "listening sockets" -> ss
     (
-        (("port", "ports", "socket", "sockets"), ("open", "listening", "listen", "tcp", "udp", "active", "established", "connections")),
-        (("ss", 1.45), ("lsof", 0.8), ("netstat", 0.7)),
+        (
+            ("port", "ports", "socket", "sockets"),
+            ("open", "listening", "listen", "tcp", "udp", "active", "established", "connections"),
+        ),
+        (("ss", 2.1), ("lsof", 0.9), ("netstat", 0.8)),
     ),
     # "files older than 30 days" / "files larger than 100MB" -> find (even with "delete"!)
     (
-        (("file", "files", "directory", "directories", "folder", "folders"), ("older", "newer", "larger", "bigger", "smaller", "modified", "mtime", "size", "days", "weeks", "empty")),
+        (
+            ("file", "files", "directory", "directories", "folder", "folders"),
+            (
+                "older",
+                "newer",
+                "larger",
+                "bigger",
+                "smaller",
+                "modified",
+                "mtime",
+                "size",
+                "days",
+                "weeks",
+                "empty",
+            ),
+        ),
         (("find", 1.55), ("fd", 0.75)),
     ),
     # "undo last commit" / "stash changes" / "git branch" -> git
     (
-        (("commit", "commits", "branch", "branches", "stash", "rebase", "cherry", "merge", "diff", "staged"),),
+        (
+            (
+                "commit",
+                "commits",
+                "branch",
+                "branches",
+                "stash",
+                "rebase",
+                "cherry",
+                "merge",
+                "diff",
+                "staged",
+            ),
+        ),
         (("git", 1.3),),
     ),
     # "restart nginx service" / "check service status" -> systemctl
     (
-        (("service", "services", "daemon", "unit"), ("start", "stop", "restart", "reload", "enable", "disable", "status", "failed")),
+        (
+            ("service", "services", "daemon", "unit"),
+            ("start", "stop", "restart", "reload", "enable", "disable", "status", "failed"),
+        ),
         (("systemctl", 1.45), ("journalctl", 0.55)),
     ),
     # "service logs" / "systemd journal" -> journalctl
@@ -166,7 +208,19 @@ _COMPOUND_INTENT_RULES: tuple[tuple[tuple[tuple[str, ...], ...], tuple[tuple[str
     ),
     # "search recursively" / "ignoring gitignore" / "pattern in files" -> rg / grep
     (
-        (("search", "grep", "match", "find"), ("recursively", "recursive", "gitignore", "pattern", "regex", "text", "string", "lines")),
+        (
+            ("search", "grep", "match", "find"),
+            (
+                "recursively",
+                "recursive",
+                "gitignore",
+                "pattern",
+                "regex",
+                "text",
+                "string",
+                "lines",
+            ),
+        ),
         (("rg", 1.25), ("grep", 1.1)),
     ),
     # "pretty print json" / "parse json" / "extract field from json" -> jq
@@ -176,12 +230,18 @@ _COMPOUND_INTENT_RULES: tuple[tuple[tuple[tuple[str, ...], ...], tuple[tuple[str
     ),
     # "copy files over ssh" / "sync directory" / "preserving permissions" -> rsync / scp
     (
-        (("copy", "sync", "transfer", "upload", "mirror"), ("ssh", "remote", "server", "host", "permissions", "incremental")),
+        (
+            ("copy", "sync", "transfer", "upload", "mirror"),
+            ("ssh", "remote", "server", "host", "permissions", "incremental"),
+        ),
         (("rsync", 1.35), ("scp", 1.1)),
     ),
     # "make file executable" / "change permissions" -> chmod
     (
-        (("permission", "permissions", "executable", "mode"), ("change", "set", "make", "grant", "add", "remove")),
+        (
+            ("permission", "permissions", "executable", "mode"),
+            ("change", "set", "make", "grant", "add", "remove"),
+        ),
         (("chmod", 1.4), ("chown", 0.5)),
     ),
     # "change owner" / "change ownership" -> chown
@@ -191,7 +251,10 @@ _COMPOUND_INTENT_RULES: tuple[tuple[tuple[tuple[str, ...], ...], tuple[tuple[str
     ),
     # "running processes" / "process list" / "memory usage by process" -> ps / top
     (
-        (("process", "processes", "pid"), ("list", "running", "snapshot", "show", "all", "tree", "memory", "cpu")),
+        (
+            ("process", "processes", "pid"),
+            ("list", "running", "snapshot", "show", "all", "tree", "memory", "cpu"),
+        ),
         (("ps", 1.2), ("pgrep", 0.8), ("top", 0.6)),
     ),
     # "kill process by name" / "stop process" -> pkill / kill
@@ -201,17 +264,26 @@ _COMPOUND_INTENT_RULES: tuple[tuple[tuple[tuple[str, ...], ...], tuple[tuple[str
     ),
     # "download file from url" / "http post request" -> curl / wget
     (
-        (("http", "https", "url", "api", "endpoint", "header", "headers"), ("request", "post", "get", "download", "fetch", "send", "curl")),
+        (
+            ("http", "https", "url", "api", "endpoint", "header", "headers"),
+            ("request", "post", "get", "download", "fetch", "send", "curl"),
+        ),
         (("curl", 1.3), ("wget", 0.8)),
     ),
     # "replace text in place" / "substitute string in file" -> sed
     (
-        (("replace", "substitute"), ("text", "string", "word", "pattern", "line", "lines", "file", "inplace", "place")),
+        (
+            ("replace", "substitute"),
+            ("text", "string", "word", "pattern", "line", "lines", "file", "inplace", "place"),
+        ),
         (("sed", 1.35), ("awk", 0.5)),
     ),
     # "extract column" / "sum numbers in column" -> awk / cut
     (
-        (("column", "columns", "field", "fields", "delimiter", "csv"), ("extract", "print", "sum", "split", "select")),
+        (
+            ("column", "columns", "field", "fields", "delimiter", "csv"),
+            ("extract", "print", "sum", "split", "select"),
+        ),
         (("awk", 1.2), ("cut", 1.1)),
     ),
 )

@@ -69,8 +69,7 @@ INTELLIGENCE_CONFIG_FILE = CONFIG_FILE
 # ============================================================================
 
 MISMATCH_UPDATE_NOTICE = (
-    "[sem] Index is missing or incompatible with the current configuration.\n"
-    "Run: sem update"
+    "[sem] Index is missing or incompatible with the current configuration.\nRun: sem update"
 )
 VERSION_UPDATE_NOTICE_TEMPLATE = (
     "[sem] Index format changed in sempropos {version}.\nRun: sem update"

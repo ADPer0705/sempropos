@@ -30,9 +30,7 @@ def _resolved_config(role_config: SynthesisConfig | None) -> SynthesisConfig:
     return load_config().synthesis
 
 
-def _api_key(
-    role_config: SynthesisConfig | None, options: SynthesisOptions | None
-) -> str | None:
+def _api_key(role_config: SynthesisConfig | None, options: SynthesisOptions | None) -> str | None:
     if options and options.api_key:
         return options.api_key
     cfg = _resolved_config(role_config)

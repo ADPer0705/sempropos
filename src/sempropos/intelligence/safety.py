@@ -42,24 +42,67 @@ _SHELL_BUILTINS = frozenset(
     }
 )
 
-_WRAPPER_COMMANDS = frozenset({"sudo", "doas", "env", "time", "nice", "nohup", "command", "builtin"})
+_WRAPPER_COMMANDS = frozenset(
+    {"sudo", "doas", "env", "time", "nice", "nohup", "command", "builtin"}
+)
 _WRAPPER_VALUE_FLAGS = frozenset({"-u", "-g", "-C", "-h", "-p", "-n", "--user", "--group", "-U"})
 
 # Explicit destructive patterns: (regex, warning_message)
 _DESTRUCTIVE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"\brm\b[^\n;|&]*\s-[^\s]*r[^\s]*f|\brm\b[^\n;|&]*\s-[^\s]*f[^\s]*r|\brm\b[^\n;|&]*--recursive[^\n;|&]*--force"), "Recursive forced deletion (`rm -rf`) permanently deletes files without confirmation."),
-    (re.compile(r"\bfind\b[^\n;|&]*\s-delete\b"), "`find -delete` permanently removes matched files. Preview without `-delete` first."),
-    (re.compile(r"\bdd\b[^\n;|&]*\bof=/dev/"), "`dd of=/dev/...` writes raw blocks directly to a device and can destroy data."),
-    (re.compile(r"\b(?:mkfs(?:\.[a-z0-9]+)?|wipefs|shred|fdisk|parted|sfdisk)\b"), "Disk/filesystem formatting or wiping command can irreversibly destroy data."),
-    (re.compile(r"\bchmod\b[^\n;|&]*\s-R\b[^\n;|&]*\b777\b"), "Recursive `chmod -R 777` grants world-writable permissions across a directory tree."),
-    (re.compile(r"\bgit\b[^\n;|&]*\breset\b[^\n;|&]*--hard\b"), "`git reset --hard` permanently discards uncommitted local changes."),
-    (re.compile(r"\bgit\b[^\n;|&]*\bpush\b[^\n;|&]*(?:--force|-f)\b"), "`git push --force` rewrites remote commit history."),
-    (re.compile(r"\bgit\b[^\n;|&]*\bclean\b[^\n;|&]*-[^\s]*f"), "`git clean -f` permanently deletes untracked files."),
-    (re.compile(r"\biptables\b[^\n;|&]*\s-F\b|\bnft\b[^\n;|&]*\bflush\b"), "Flushing firewall rules can drop network connectivity or expose services."),
-    (re.compile(r"\b(?:kill|pkill|killall)\b[^\n;|&]*(?:-9|-SIGKILL|-KILL)\b"), "SIGKILL (`-9`) terminates processes immediately without graceful cleanup."),
-    (re.compile(r"\b(?:reboot|poweroff|shutdown|halt)\b"), "System power/reboot command will interrupt active sessions."),
-    (re.compile(r"\b(?:curl|wget)\b[^\n]*\|\s*(?:sudo\s+)?(?:sh|bash|zsh)\b"), "Piping remote output directly into a shell executes uninspected code."),
-    (re.compile(r">\s*/dev/(?:sd|nvme|vd|hd|loop)"), "Redirecting output directly to a block device overwrites raw disk data."),
+    (
+        re.compile(
+            r"\brm\b[^\n;|&]*\s-[^\s]*r[^\s]*f|\brm\b[^\n;|&]*\s-[^\s]*f[^\s]*r|\brm\b[^\n;|&]*--recursive[^\n;|&]*--force"
+        ),
+        "Recursive forced deletion (`rm -rf`) permanently deletes files without confirmation.",
+    ),
+    (
+        re.compile(r"\bfind\b[^\n;|&]*\s-delete\b"),
+        "`find -delete` permanently removes matched files. Preview without `-delete` first.",
+    ),
+    (
+        re.compile(r"\bdd\b[^\n;|&]*\bof=/dev/"),
+        "`dd of=/dev/...` writes raw blocks directly to a device and can destroy data.",
+    ),
+    (
+        re.compile(r"\b(?:mkfs(?:\.[a-z0-9]+)?|wipefs|shred|fdisk|parted|sfdisk)\b"),
+        "Disk/filesystem formatting or wiping command can irreversibly destroy data.",
+    ),
+    (
+        re.compile(r"\bchmod\b[^\n;|&]*\s-R\b[^\n;|&]*\b777\b"),
+        "Recursive `chmod -R 777` grants world-writable permissions across a directory tree.",
+    ),
+    (
+        re.compile(r"\bgit\b[^\n;|&]*\breset\b[^\n;|&]*--hard\b"),
+        "`git reset --hard` permanently discards uncommitted local changes.",
+    ),
+    (
+        re.compile(r"\bgit\b[^\n;|&]*\bpush\b[^\n;|&]*(?:--force|-f)\b"),
+        "`git push --force` rewrites remote commit history.",
+    ),
+    (
+        re.compile(r"\bgit\b[^\n;|&]*\bclean\b[^\n;|&]*-[^\s]*f"),
+        "`git clean -f` permanently deletes untracked files.",
+    ),
+    (
+        re.compile(r"\biptables\b[^\n;|&]*\s-F\b|\bnft\b[^\n;|&]*\bflush\b"),
+        "Flushing firewall rules can drop network connectivity or expose services.",
+    ),
+    (
+        re.compile(r"\b(?:kill|pkill|killall)\b[^\n;|&]*(?:-9|-SIGKILL|-KILL)\b"),
+        "SIGKILL (`-9`) terminates processes immediately without graceful cleanup.",
+    ),
+    (
+        re.compile(r"\b(?:reboot|poweroff|shutdown|halt)\b"),
+        "System power/reboot command will interrupt active sessions.",
+    ),
+    (
+        re.compile(r"\b(?:curl|wget)\b[^\n]*\|\s*(?:sudo\s+)?(?:sh|bash|zsh)\b"),
+        "Piping remote output directly into a shell executes uninspected code.",
+    ),
+    (
+        re.compile(r">\s*/dev/(?:sd|nvme|vd|hd|loop)"),
+        "Redirecting output directly to a block device overwrites raw disk data.",
+    ),
 )
 
 # Caution-level patterns (mutating operations worth reviewing before pressing Enter)
@@ -68,8 +111,14 @@ _CAUTION_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\brm\b"), "Deletes files; verify target paths before running."),
     (re.compile(r"\bsed\b[^\n;|&]*\s-i\b"), "`sed -i` edits files in place."),
     (re.compile(r"\b(?:chmod|chown)\b"), "Modifies file permissions or ownership."),
-    (re.compile(r"\bsystemctl\b[^\n;|&]*\b(?:stop|disable|mask|restart)\b"), "Modifies running system service state."),
-    (re.compile(r"\b(?:docker|podman)\b[^\n;|&]*\b(?:rm|rmi|prune)\b"), "Removes containers or images."),
+    (
+        re.compile(r"\bsystemctl\b[^\n;|&]*\b(?:stop|disable|mask|restart)\b"),
+        "Modifies running system service state.",
+    ),
+    (
+        re.compile(r"\b(?:docker|podman)\b[^\n;|&]*\b(?:rm|rmi|prune)\b"),
+        "Removes containers or images.",
+    ),
     (re.compile(r"\b(?:kill|pkill|killall)\b"), "Sends termination signals to running processes."),
 )
 

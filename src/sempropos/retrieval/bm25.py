@@ -80,9 +80,7 @@ def _run_fts(
     }
 
 
-def _lookup_named_tools(
-    conn: sqlite3.Connection, names: set[str]
-) -> dict[int, tuple[str, str]]:
+def _lookup_named_tools(conn: sqlite3.Connection, names: set[str]) -> dict[int, tuple[str, str]]:
     """Fetch any indexed tool matching an explicit name, alias, artifact, or intent hint."""
     if not names:
         return {}
@@ -158,9 +156,7 @@ def _score_with_conn(
     syn_hits = _run_fts(conn, build_fts_query(syn_terms, operator="OR"), limit)
 
     hint_names = (
-        set(analyzed.raw_tokens)
-        | set(analyzed.artifact_boosts)
-        | set(analyzed.intent_tool_boosts)
+        set(analyzed.raw_tokens) | set(analyzed.artifact_boosts) | set(analyzed.intent_tool_boosts)
     )
     direct_tools = _lookup_named_tools(conn, hint_names)
     all_ids = set(or_hits) | set(and_hits) | set(syn_hits) | set(direct_tools)
@@ -209,9 +205,7 @@ def query_bm25_ranking(
     """Return top-k lexical BM25+intent matches as ``[(tool_id, score), ...]``."""
     if analyzed is None:
         raw_query = (
-            query_or_tokens
-            if isinstance(query_or_tokens, str)
-            else " ".join(query_or_tokens)
+            query_or_tokens if isinstance(query_or_tokens, str) else " ".join(query_or_tokens)
         )
         analyzed = analyze_query(raw_query)
 

@@ -193,3 +193,57 @@ DESCRIPTION
     by_short = {f.short: f for f in doc.flags}
     assert "apparent size" in by_short["-A"].description
     assert "appar\u2010" not in by_short["-A"].description
+
+
+def test_real_world_osc8_docbook_and_jq_roff_idioms() -> None:
+    # 1. GNU coreutils 9.11 OSC-8 hyperlink escapes `\X'tty: link ...'`
+    osc8_du = r""".TH DU "1" "August 2026" "GNU coreutils 9.11"
+.SH NAME
+du \- estimate file space usage
+.SH DESCRIPTION
+.TP
+\X'tty: link https://example.org#du-d'\fB\-d, \-\-max\-depth=\,N\fP\X'tty: link'\/\fR
+print the total for a directory only if it is N or fewer levels below
+"""
+    du_doc = parse_roff_source(osc8_du, "du")
+    assert len(du_doc.flags) == 1
+    assert du_doc.flags[0].short == "-d"
+    assert du_doc.flags[0].long == "--max-depth"
+    assert du_doc.flags[0].value_hint == "N"
+
+    # 2. DocBook `.PP` -> header -> `.RS 4` -> body -> `.RE` (git.1.gz flags + subcommands)
+    docbook_git = r""".TH "GIT" "1"
+.SH "NAME"
+git \- the stupid content tracker
+.SH "OPTIONS"
+.PP
+\-v, \-\-version
+.RS 4
+Prints the Git suite version\&.
+.RE
+.SH "HIGH\-LEVEL COMMANDS (PORCELAIN)"
+.PP
+\fBgit-add\fR(1)
+.RS 4
+Add file contents to the index\&.
+.RE
+"""
+    git_doc = parse_roff_source(docbook_git, "git")
+    assert any(f.short == "-v" and f.long == "--version" for f in git_doc.flags)
+    assert any(s.name == "add" and "index" in s.summary for s in git_doc.subcommands)
+
+    # 3. ronn/pandoc `jq.1.gz` (`INVOKING JQ`, `/` separator, trailing `:`, bare `.IP`)
+    jq_roff = r""".TH "JQ" "1"
+.SH "NAME"
+jq \- Command-line JSON processor
+.SH "INVOKING JQ"
+.TP
+\fB\-\-null\-input\fR / \fB\-n\fR:
+.IP
+Don\'t read any input at all\.
+"""
+    jq_doc = parse_roff_source(jq_roff, "jq")
+    assert len(jq_doc.flags) == 1
+    assert jq_doc.flags[0].short == "-n"
+    assert jq_doc.flags[0].long == "--null-input"
+    assert "input" in jq_doc.flags[0].description

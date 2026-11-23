@@ -77,7 +77,9 @@ def _clean_tldr_command(cmd: str) -> str:
     return _PLACEHOLDER_RE.sub(repl, cmd.strip())
 
 
-def parse_tldr_markdown(raw: str, default_name: str, *, subcommand: str | None = None) -> ParsedTldrPage:
+def parse_tldr_markdown(
+    raw: str, default_name: str, *, subcommand: str | None = None
+) -> ParsedTldrPage:
     """Parse a standard tldr-pages markdown file."""
     name = default_name
     desc_lines: list[str] = []
@@ -161,9 +163,7 @@ def find_local_tldr_sources() -> list[Path]:
         if path.is_file() and path.suffix == ".zip":
             seen.add(resolved)
             found.append(path)
-        elif path.is_dir() and (
-            (path / "pages" / "common").is_dir() or (path / "common").is_dir()
-        ):
+        elif path.is_dir() and ((path / "pages" / "common").is_dir() or (path / "common").is_dir()):
             # Accept either `<root>/pages/common` or `<root>/common`.
             seen.add(resolved)
             found.append(path)

@@ -35,22 +35,72 @@ _SOURCE_PRIORITY: dict[SourceKind, int] = {
 _CATEGORY_RULES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     (
         "archive",
-        ("archive", "compress", "decompress", "zip", "unzip", "tar", "7z", "gzip", "bzip2", "xz", "zstd"),
+        (
+            "archive",
+            "compress",
+            "decompress",
+            "zip",
+            "unzip",
+            "tar",
+            "7z",
+            "gzip",
+            "bzip2",
+            "xz",
+            "zstd",
+        ),
         ("archive", "compress", "extract"),
     ),
     (
         "network",
-        ("socket", "tcp", "udp", "http", "url", "ssh", "dns", "packet", "firewall", "network", "port", "curl", "wget", "ping", "ip"),
+        (
+            "socket",
+            "tcp",
+            "udp",
+            "http",
+            "url",
+            "ssh",
+            "dns",
+            "packet",
+            "firewall",
+            "network",
+            "port",
+            "curl",
+            "wget",
+            "ping",
+            "ip",
+        ),
         ("network", "socket", "port"),
     ),
     (
         "filesystem",
-        ("directory", "file space", "disk usage", "filesystem", "mount", "copy files", "remove files", "search for files", "permissions", "mode bits", "inode", "symlink"),
+        (
+            "directory",
+            "file space",
+            "disk usage",
+            "filesystem",
+            "mount",
+            "copy files",
+            "remove files",
+            "search for files",
+            "permissions",
+            "mode bits",
+            "inode",
+            "symlink",
+        ),
         ("files", "directory", "disk"),
     ),
     (
         "vcs",
-        ("git", "version control", "content tracker", "repository", "commit", "mercurial", "subversion", "jujutsu"),
+        (
+            "git",
+            "version control",
+            "content tracker",
+            "repository",
+            "commit",
+            "mercurial",
+            "subversion",
+            "jujutsu",
+        ),
         ("git", "vcs", "repo"),
     ),
     (
@@ -60,17 +110,56 @@ _CATEGORY_RULES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     (
         "process",
-        ("process", "signal", "pid", "memory usage", "cpu", "scheduler", "kill", "systemd", "service", "daemon", "journal"),
+        (
+            "process",
+            "signal",
+            "pid",
+            "memory usage",
+            "cpu",
+            "scheduler",
+            "kill",
+            "systemd",
+            "service",
+            "daemon",
+            "journal",
+        ),
         ("process", "service", "system"),
     ),
     (
         "text",
-        ("pattern", "regex", "stream editor", "json", "yaml", "xml", "csv", "grep", "ripgrep", "awk", "sed", "sort lines", "filter"),
+        (
+            "pattern",
+            "regex",
+            "stream editor",
+            "json",
+            "yaml",
+            "xml",
+            "csv",
+            "grep",
+            "ripgrep",
+            "awk",
+            "sed",
+            "sort lines",
+            "filter",
+        ),
         ("text", "search", "parse"),
     ),
     (
         "package",
-        ("package manager", "python package", "dependency", "install packages", "pip", "cargo", "npm", "apt", "dnf", "pacman", "brew", "uv"),
+        (
+            "package manager",
+            "python package",
+            "dependency",
+            "install packages",
+            "pip",
+            "cargo",
+            "npm",
+            "apt",
+            "dnf",
+            "pacman",
+            "brew",
+            "uv",
+        ),
         ("package", "install", "env"),
     ),
     (
@@ -80,7 +169,19 @@ _CATEGORY_RULES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     (
         "security",
-        ("encrypt", "decrypt", "cipher", "gpg", "ssl", "tls", "certificate", "hash", "checksum", "sha256", "key"),
+        (
+            "encrypt",
+            "decrypt",
+            "cipher",
+            "gpg",
+            "ssl",
+            "tls",
+            "certificate",
+            "hash",
+            "checksum",
+            "sha256",
+            "key",
+        ),
         ("crypto", "security"),
     ),
 )
@@ -160,7 +261,11 @@ def _merge_flags(sources_flags: list[list[FlagSpec]]) -> tuple[FlagSpec, ...]:
             long = existing.long or flag.long
             takes_value = existing.takes_value or flag.takes_value
             value_hint = existing.value_hint or flag.value_hint
-            desc = existing.description if len(existing.description) >= len(flag.description) else flag.description
+            desc = (
+                existing.description
+                if len(existing.description) >= len(flag.description)
+                else flag.description
+            )
             updated = FlagSpec(
                 short=short,
                 long=long,

@@ -33,6 +33,7 @@ _MULTICALL_TARGETS = frozenset(
         "flatpak",
         "snap",
         "distrobox-host-exec",
+        "git",
     }
 )
 

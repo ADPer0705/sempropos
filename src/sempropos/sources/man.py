@@ -97,10 +97,15 @@ def discover_man_files(
     man_roots: list[Path] | None = None,
     sections: tuple[int, ...] = (1, 8),
 ) -> dict[str, tuple[Path, int]]:
-    """Map canonical installed tool names to their highest-priority man file on disk."""
+    """Map canonical installed tool names to their highest-priority man file on disk.
+
+    An exact filename match (e.g. ``git.1.gz``) always takes precedence over a
+    symlink-alias filename (e.g. ``git-receive-pack.1.gz``) regardless of
+    filesystem directory iteration order.
+    """
     roots = man_roots if man_roots is not None else discover_manpath_dirs()
     installed = context.all_binary_names
-    found: dict[str, tuple[Path, int]] = {}
+    found: dict[str, tuple[Path, int, bool]] = {}
 
     for root in roots:
         for sec in sections:
@@ -117,12 +122,14 @@ def discover_man_files(
                         if raw_name not in installed:
                             continue
                         canonical = context.canonical_name(raw_name)
-                        if canonical not in found:
-                            found[canonical] = (Path(dirent.path), parsed_sec)
+                        is_exact = raw_name == canonical
+                        existing = found.get(canonical)
+                        if existing is None or (is_exact and not existing[2]):
+                            found[canonical] = (Path(dirent.path), parsed_sec, is_exact)
             except OSError:
                 continue
 
-    return found
+    return {name: (path, sec) for name, (path, sec, _exact) in found.items()}
 
 
 def _render_man_fallback(name: str, section: int) -> str | None:

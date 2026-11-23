@@ -7,7 +7,9 @@ from sempropos.model import FlagSpec, ToolSpec
 
 
 def test_extract_primary_executable_handles_env_wrappers_and_pipelines() -> None:
-    exe, args = extract_primary_executable("LANG=C sudo -u root find /var -name '*.log' | head -n 5")
+    exe, args = extract_primary_executable(
+        "LANG=C sudo -u root find /var -name '*.log' | head -n 5"
+    )
     assert exe == "find"
     assert "-name" in args
 

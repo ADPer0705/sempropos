@@ -226,11 +226,15 @@ def _render_ask_response(  # noqa: C901
         )
 
     if status == "index_error":
-        stderr_console.print(f"[bold red]{escape(str(resp.get('error') or 'Index error'))}[/bold red]")
+        stderr_console.print(
+            f"[bold red]{escape(str(resp.get('error') or 'Index error'))}[/bold red]"
+        )
         return EXIT_NOT_FOUND
 
     if status == "no_candidates":
-        stderr_console.print(f"[yellow]{escape(str(resp.get('error') or 'No relevant tools found.'))}[/yellow]")
+        stderr_console.print(
+            f"[yellow]{escape(str(resp.get('error') or 'No relevant tools found.'))}[/yellow]"
+        )
         return EXIT_NOT_FOUND
 
     if status != "ok" or not isinstance(command, str) or not command.strip():
@@ -291,7 +295,9 @@ def _render_ask_response(  # noqa: C901
             tbl.add_column("Flag", style="bold cyan", no_wrap=True)
             tbl.add_column("Meaning")
             for item in flags_exp:
-                tbl.add_row(str(item.get("flag") or ""), _short(str(item.get("description") or ""), 140))
+                tbl.add_row(
+                    str(item.get("flag") or ""), _short(str(item.get("description") or ""), 140)
+                )
             stdout_console.print(tbl)
         unverified = verification.get("unverified_flags") or []
         if unverified:
@@ -309,7 +315,9 @@ def _render_ask_response(  # noqa: C901
         if _copy_to_clipboard(command.strip()):
             stderr_console.print("[dim]Copied command to clipboard.[/dim]")
         else:
-            stderr_console.print("[yellow]Clipboard utility not available (wl-copy/xclip/pbcopy).[/yellow]")
+            stderr_console.print(
+                "[yellow]Clipboard utility not available (wl-copy/xclip/pbcopy).[/yellow]"
+            )
 
     return EXIT_OK
 
@@ -419,9 +427,13 @@ def _render_tool_card(
 @app.command()
 def ask(
     query: list[str] = typer.Argument(..., help="Natural-language task description"),
-    tool: str | None = typer.Option(None, "-t", "--tool", help="Scope synthesis to a specific tool"),
+    tool: str | None = typer.Option(
+        None, "-t", "--tool", help="Scope synthesis to a specific tool"
+    ),
     explain: bool = typer.Option(False, "-e", "--explain", help="Show flag-by-flag breakdown"),
-    alternatives: int = typer.Option(1, "-n", "--alternatives", min=1, max=5, help="Number of command candidates"),
+    alternatives: int = typer.Option(
+        1, "-n", "--alternatives", min=1, max=5, help="Number of command candidates"
+    ),
     copy: bool = typer.Option(False, "-c", "--copy", help="Copy generated command to clipboard"),
     backend: str | None = typer.Option(None, "--backend", help="Override synthesis backend"),
     porcelain: bool = typer.Option(False, "--porcelain", help="Print only the runnable command"),
@@ -559,7 +571,9 @@ def complete_tools() -> None:
 def _check_sqlite_fts5() -> None:
     try:
         conn = sqlite3.connect(":memory:")
-        conn.execute("CREATE VIRTUAL TABLE _fts_check USING fts5(content, tokenize='porter unicode61');")
+        conn.execute(
+            "CREATE VIRTUAL TABLE _fts_check USING fts5(content, tokenize='porter unicode61');"
+        )
         conn.close()
     except sqlite3.OperationalError:
         stderr_console.print("[red]Error: SQLite FTS5 with porter tokenizer is unavailable.[/red]")
@@ -617,7 +631,9 @@ def install(
     offline: bool = typer.Option(False, "--offline", help="Do not download tldr archive or models"),
     no_tldr: bool = typer.Option(False, "--no-tldr", help="Skip tldr-pages enrichment"),
     no_help_probe: bool = typer.Option(False, "--no-help-probe", help="Skip safe --help probing"),
-    skip_embeddings: bool = typer.Option(False, "--skip-embeddings", help="Build lexical-only index"),
+    skip_embeddings: bool = typer.Option(
+        False, "--skip-embeddings", help="Build lexical-only index"
+    ),
     model_tier: str | None = typer.Option(
         None,
         "--model",
@@ -672,7 +688,9 @@ def install(
     if warmed is not None:
         stderr_console.print(f"[dim]Synthesis backend '{warmed[0]}': {warmed[1]}.[/dim]")
 
-    stdout_console.print('\n[bold green]Setup complete![/bold green] Try: sem "show disk usage by folder"')
+    stdout_console.print(
+        '\n[bold green]Setup complete![/bold green] Try: sem "show disk usage by folder"'
+    )
 
 
 @app.command()
@@ -681,7 +699,9 @@ def update(
     offline: bool = typer.Option(False, "--offline", help="Do not perform network downloads"),
     no_tldr: bool = typer.Option(False, "--no-tldr", help="Skip tldr-pages enrichment"),
     no_help_probe: bool = typer.Option(False, "--no-help-probe", help="Skip safe --help probing"),
-    skip_embeddings: bool = typer.Option(False, "--skip-embeddings", help="Skip vector embedding sync"),
+    skip_embeddings: bool = typer.Option(
+        False, "--skip-embeddings", help="Skip vector embedding sync"
+    ),
 ) -> None:
     """Incrementally refresh the index, re-indexing changed tools and pruning uninstalled ones."""
     from sempropos.daemon.client import DaemonClient
@@ -730,7 +750,9 @@ def doctor(
     table.add_column("Check", style="cyan", no_wrap=True)
     table.add_column("Value")
 
-    table.add_row("Index complete", "[green]yes[/green]" if complete else "[red]no (run `sem install`)[/red]")
+    table.add_row(
+        "Index complete", "[green]yes[/green]" if complete else "[red]no (run `sem install`)[/red]"
+    )
     table.add_row(
         "Index revision",
         f"{report.get('index_revision') or 'none'} (expected {report.get('expected_index_revision')})",
@@ -759,7 +781,9 @@ def doctor(
 
     synth_cfg = report.get("synthesis_config") or {}
     embed_cfg = report.get("embedding_config") or {}
-    table.add_row("Synthesis", f"{synth_cfg.get('provider')} ({synth_cfg.get('model') or 'default'})")
+    table.add_row(
+        "Synthesis", f"{synth_cfg.get('provider')} ({synth_cfg.get('model') or 'default'})"
+    )
     table.add_row(
         "Embedding",
         f"{embed_cfg.get('provider')} ({embed_cfg.get('model') or 'none'}, lazy={embed_cfg.get('lazy_fallback')})",
@@ -807,8 +831,16 @@ def model_list() -> None:
 
     for spec in models.list_catalog():
         is_inst = spec.model_id in installed
-        is_active = active.provider == "local_gguf" and active.model in (spec.tier, spec.model_id, spec.filename)
-        status = "[bold green]active[/bold green]" if is_active else ("[green]yes[/green]" if is_inst else "[dim]no[/dim]")
+        is_active = active.provider == "local_gguf" and active.model in (
+            spec.tier,
+            spec.model_id,
+            spec.filename,
+        )
+        status = (
+            "[bold green]active[/bold green]"
+            if is_active
+            else ("[green]yes[/green]" if is_inst else "[dim]no[/dim]")
+        )
         table.add_row(spec.tier, spec.model_id, f"{spec.size_mb} MB", status, spec.description)
 
     stdout_console.print(table)
@@ -846,7 +878,9 @@ def model_install(
             synthesis=replace(cfg.synthesis, provider="local_gguf", model=spec.model_id),
         )
         config.save_config(updated)
-        stdout_console.print(f"[dim]Activated synthesis provider: local_gguf ({spec.model_id}).[/dim]")
+        stdout_console.print(
+            f"[dim]Activated synthesis provider: local_gguf ({spec.model_id}).[/dim]"
+        )
 
 
 @model_app.command("use")
@@ -883,7 +917,9 @@ def model_remove(
 
     removed = models.remove_model(identifier)
     if removed is None:
-        stderr_console.print(f"[yellow]No managed model found matching '{escape(identifier)}'.[/yellow]")
+        stderr_console.print(
+            f"[yellow]No managed model found matching '{escape(identifier)}'.[/yellow]"
+        )
         raise typer.Exit(EXIT_NOT_FOUND)
     stdout_console.print(f"[green]Removed {escape(str(removed))}[/green]")
 
@@ -997,7 +1033,9 @@ def config_get(key: str = typer.Argument(..., help="Dotted key, e.g. synthesis.p
     """Read a single configuration value (e.g. ``sem config get synthesis.provider``)."""
     parts = key.split(".", 1)
     if len(parts) != 2:
-        stderr_console.print("[red]Key must use section.field format (e.g. synthesis.provider).[/red]")
+        stderr_console.print(
+            "[red]Key must use section.field format (e.g. synthesis.provider).[/red]"
+        )
         raise typer.Exit(EXIT_USAGE)
     section_name, field_name = parts
     cfg = config.load_config()
@@ -1167,9 +1205,13 @@ def providers() -> None:
     table.add_column("Available", justify="right")
 
     for name in config.SUPPORTED_SYNTHESIS_PROVIDERS:
-        table.add_row("Synthesis", name, "[green]yes[/green]" if synth.get(name) else "[red]no[/red]")
+        table.add_row(
+            "Synthesis", name, "[green]yes[/green]" if synth.get(name) else "[red]no[/red]"
+        )
     for name in config.SUPPORTED_EMBEDDING_PROVIDERS:
-        table.add_row("Embedding", name, "[green]yes[/green]" if embed.get(name) else "[red]no[/red]")
+        table.add_row(
+            "Embedding", name, "[green]yes[/green]" if embed.get(name) else "[red]no[/red]"
+        )
 
     stdout_console.print(table)
 
@@ -1204,9 +1246,13 @@ def version() -> None:
 @app.callback()
 def cli_core(
     ctx: typer.Context,
-    tool: str | None = typer.Option(None, "-t", "--tool", help="Scope synthesis to a specific tool"),
+    tool: str | None = typer.Option(
+        None, "-t", "--tool", help="Scope synthesis to a specific tool"
+    ),
     explain: bool = typer.Option(False, "-e", "--explain", help="Show flag-by-flag breakdown"),
-    alternatives: int = typer.Option(1, "-n", "--alternatives", min=1, max=5, help="Number of candidates"),
+    alternatives: int = typer.Option(
+        1, "-n", "--alternatives", min=1, max=5, help="Number of candidates"
+    ),
     copy: bool = typer.Option(False, "-c", "--copy", help="Copy command to clipboard"),
     backend: str | None = typer.Option(None, "--backend", help="Override synthesis backend"),
     porcelain: bool = typer.Option(False, "--porcelain", help="Print only the command"),

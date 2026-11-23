@@ -393,9 +393,7 @@ class CandidateContext:
             "tool": self.name,
             "summary": self.summary,
             "synopsis": " | ".join(self.synopsis[:3]),
-            "subcommands": [
-                {"name": sub.name, "summary": sub.summary} for sub in self.subcommands
-            ],
+            "subcommands": [{"name": sub.name, "summary": sub.summary} for sub in self.subcommands],
             "flags": [
                 {
                     "flag": flag.primary,

@@ -236,7 +236,11 @@ def _sync_embeddings(
     new_vectors: dict[int, np.ndarray[Any, Any]] = {}
     dim = int(next(iter(reusable.values())).shape[0]) if reusable else 0
 
-    pbar = tqdm(total=len(to_embed), desc="Embedding tools", unit="tool") if (progress and to_embed) else None
+    pbar = (
+        tqdm(total=len(to_embed), desc="Embedding tools", unit="tool")
+        if (progress and to_embed)
+        else None
+    )
     try:
         for start in range(0, len(to_embed), _EMBED_BATCH):
             batch_ids = to_embed[start : start + _EMBED_BATCH]
@@ -371,9 +375,7 @@ def build_index(  # noqa: C901
     if use_probe:
         # Probe binaries absent from man OR whose man page yielded neither flags nor subcommands.
         already_rich = {
-            name
-            for name, mb in man_bundles.items()
-            if mb.doc.flags or mb.doc.subcommands
+            name for name, mb in man_bundles.items() if mb.doc.flags or mb.doc.subcommands
         }
         probe_frags = _probe_missing_tools(
             discovery,
@@ -383,9 +385,7 @@ def build_index(  # noqa: C901
         )
 
     # Stage 3: Assemble bundles and merge into canonical ToolSpec objects.
-    all_names = (
-        set(man_bundles) | set(tldr_frags) | set(comp_frags) | set(probe_frags)
-    )
+    all_names = set(man_bundles) | set(tldr_frags) | set(comp_frags) | set(probe_frags)
     bundles: dict[str, ToolSourceBundle] = {}
     for name in sorted(all_names):
         bpath = discovery.binaries.get(name)

@@ -184,6 +184,7 @@ class SemDaemonServer:
             self.pid_path.write_text(str(os.getpid()), encoding="utf-8")
 
         if install_signals and threading.current_thread() is threading.main_thread():
+
             def _handle_sig(_signum: int, _frame: object) -> None:
                 self._stop_event.set()
 

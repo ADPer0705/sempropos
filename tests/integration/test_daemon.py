@@ -30,7 +30,9 @@ def _seed_test_index(isolated_env: dict[str, Path]) -> None:
                 category="filesystem",
                 flags=(
                     FlagSpec(short="-s", long="--summarize", description="Total only"),
-                    FlagSpec(short="-h", long="--human-readable", description="Human readable sizes"),
+                    FlagSpec(
+                        short="-h", long="--human-readable", description="Human readable sizes"
+                    ),
                     FlagSpec(
                         short="-d",
                         long="--max-depth",
@@ -55,7 +57,9 @@ def _seed_test_index(isolated_env: dict[str, Path]) -> None:
                 summary="High compression file archiver",
                 category="archive",
                 subcommands=(
-                    SubcommandSpec(name="l", summary="List contents of archive", source="help_probe"),
+                    SubcommandSpec(
+                        name="l", summary="List contents of archive", source="help_probe"
+                    ),
                 ),
                 examples=(
                     ExampleSpec(

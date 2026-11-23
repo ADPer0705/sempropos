@@ -24,22 +24,58 @@ def _build_realistic_corpus() -> list[ToolSpec]:
             category="filesystem",
             tags=("files", "directory", "search"),
             flags=(
-                FlagSpec(short="-size", takes_value=True, value_hint="N", description="File uses N units of space"),
-                FlagSpec(short="-mtime", takes_value=True, value_hint="N", description="File modified N*24 hours ago"),
-                FlagSpec(short="-name", takes_value=True, value_hint="PATTERN", description="Match filename pattern"),
+                FlagSpec(
+                    short="-size",
+                    takes_value=True,
+                    value_hint="N",
+                    description="File uses N units of space",
+                ),
+                FlagSpec(
+                    short="-mtime",
+                    takes_value=True,
+                    value_hint="N",
+                    description="File modified N*24 hours ago",
+                ),
+                FlagSpec(
+                    short="-name",
+                    takes_value=True,
+                    value_hint="PATTERN",
+                    description="Match filename pattern",
+                ),
                 FlagSpec(short="-delete", description="Delete matching files"),
-                FlagSpec(short="-type", takes_value=True, value_hint="TYPE", description="File type f or d"),
+                FlagSpec(
+                    short="-type",
+                    takes_value=True,
+                    value_hint="TYPE",
+                    description="File type f or d",
+                ),
             ),
             examples=(
-                ExampleSpec(command="find . -type f -size +100M", description="Find files larger than 100MB", source="tldr"),
-                ExampleSpec(command="find /tmp -type f -mtime +30 -delete", description="Delete files older than 30 days", source="tldr"),
-                ExampleSpec(command="find . -name '*.md'", description="Find markdown files", source="tldr"),
+                ExampleSpec(
+                    command="find . -type f -size +100M",
+                    description="Find files larger than 100MB",
+                    source="tldr",
+                ),
+                ExampleSpec(
+                    command="find /tmp -type f -mtime +30 -delete",
+                    description="Delete files older than 30 days",
+                    source="tldr",
+                ),
+                ExampleSpec(
+                    command="find . -name '*.md'", description="Find markdown files", source="tldr"
+                ),
             ),
         ),
         # Classic distractors that beat `find` in v0.3.0!
-        ToolSpec(name="userdel", summary="Delete a user account and related files", category="system"),
+        ToolSpec(
+            name="userdel", summary="Delete a user account and related files", category="system"
+        ),
         ToolSpec(name="mdel", summary="Delete an MSDOS file", category="filesystem"),
-        ToolSpec(name="systemd-tmpfiles", summary="Creates, deletes and cleans up volatile and temporary files", category="process"),
+        ToolSpec(
+            name="systemd-tmpfiles",
+            summary="Creates, deletes and cleans up volatile and temporary files",
+            category="process",
+        ),
         ToolSpec(
             name="du",
             summary="Estimate file space usage",
@@ -47,12 +83,30 @@ def _build_realistic_corpus() -> list[ToolSpec]:
             category="filesystem",
             tags=("disk", "size", "directory"),
             flags=(
-                FlagSpec(short="-h", long="--human-readable", description="Print sizes in human readable format"),
-                FlagSpec(short="-s", long="--summarize", description="Display only a total for each argument"),
-                FlagSpec(short="-d", long="--max-depth", takes_value=True, value_hint="N", description="Limit directory depth"),
+                FlagSpec(
+                    short="-h",
+                    long="--human-readable",
+                    description="Print sizes in human readable format",
+                ),
+                FlagSpec(
+                    short="-s",
+                    long="--summarize",
+                    description="Display only a total for each argument",
+                ),
+                FlagSpec(
+                    short="-d",
+                    long="--max-depth",
+                    takes_value=True,
+                    value_hint="N",
+                    description="Limit directory depth",
+                ),
             ),
             examples=(
-                ExampleSpec(command="du -sh *", description="Show human-readable disk usage by directory", source="tldr"),
+                ExampleSpec(
+                    command="du -sh *",
+                    description="Show human-readable disk usage by directory",
+                    source="tldr",
+                ),
             ),
         ),
         ToolSpec(
@@ -60,19 +114,43 @@ def _build_realistic_corpus() -> list[ToolSpec]:
             summary="Report file system disk space usage",
             category="filesystem",
             tags=("disk", "filesystem"),
-            flags=(FlagSpec(short="-h", long="--human-readable", description="Print sizes in powers of 1024"),),
-            examples=(ExampleSpec(command="df -h", description="Display free disk space on mounted filesystems", source="tldr"),),
+            flags=(
+                FlagSpec(
+                    short="-h", long="--human-readable", description="Print sizes in powers of 1024"
+                ),
+            ),
+            examples=(
+                ExampleSpec(
+                    command="df -h",
+                    description="Display free disk space on mounted filesystems",
+                    source="tldr",
+                ),
+            ),
         ),
         ToolSpec(
             name="ls",
             summary="List directory contents",
             category="filesystem",
             flags=(
-                FlagSpec(short="-a", long="--all", description="Do not ignore entries starting with . (hidden files)"),
+                FlagSpec(
+                    short="-a",
+                    long="--all",
+                    description="Do not ignore entries starting with . (hidden files)",
+                ),
                 FlagSpec(short="-l", description="Use a long listing format"),
-                FlagSpec(short="-h", long="--human-readable", description="Print human readable file sizes"),
+                FlagSpec(
+                    short="-h",
+                    long="--human-readable",
+                    description="Print human readable file sizes",
+                ),
             ),
-            examples=(ExampleSpec(command="ls -la", description="List all files including hidden files", source="tldr"),),
+            examples=(
+                ExampleSpec(
+                    command="ls -la",
+                    description="List all files including hidden files",
+                    source="tldr",
+                ),
+            ),
         ),
         ToolSpec(
             name="ss",
@@ -87,7 +165,13 @@ def _build_realistic_corpus() -> list[ToolSpec]:
                 FlagSpec(short="-n", long="--numeric", description="Do not resolve service names"),
                 FlagSpec(short="-p", long="--processes", description="Show process using socket"),
             ),
-            examples=(ExampleSpec(command="ss -tulnp", description="Show all listening TCP and UDP ports with processes", source="tldr"),),
+            examples=(
+                ExampleSpec(
+                    command="ss -tulnp",
+                    description="Show all listening TCP and UDP ports with processes",
+                    source="tldr",
+                ),
+            ),
         ),
         ToolSpec(
             name="tar",
@@ -97,11 +181,21 @@ def _build_realistic_corpus() -> list[ToolSpec]:
                 FlagSpec(short="-x", long="--extract", description="Extract files from an archive"),
                 FlagSpec(short="-c", long="--create", description="Create a new archive"),
                 FlagSpec(short="-z", long="--gzip", description="Filter archive through gzip"),
-                FlagSpec(short="-C", long="--directory", takes_value=True, value_hint="DIR", description="Change to directory before extraction"),
+                FlagSpec(
+                    short="-C",
+                    long="--directory",
+                    takes_value=True,
+                    value_hint="DIR",
+                    description="Change to directory before extraction",
+                ),
                 FlagSpec(short="-t", long="--list", description="List the contents of an archive"),
             ),
             examples=(
-                ExampleSpec(command="tar -xzf archive.tar.gz -C /target", description="Extract tar.gz archive to directory", source="tldr"),
+                ExampleSpec(
+                    command="tar -xzf archive.tar.gz -C /target",
+                    description="Extract tar.gz archive to directory",
+                    source="tldr",
+                ),
             ),
         ),
         ToolSpec(
@@ -110,30 +204,63 @@ def _build_realistic_corpus() -> list[ToolSpec]:
             category="archive",
             subcommands=(
                 SubcommandSpec(name="l", summary="List contents of archive", source="help_probe"),
-                SubcommandSpec(name="x", summary="Extract files with full paths", source="help_probe"),
+                SubcommandSpec(
+                    name="x", summary="Extract files with full paths", source="help_probe"
+                ),
                 SubcommandSpec(name="a", summary="Add files to archive", source="help_probe"),
             ),
-            examples=(ExampleSpec(command="7z l archive.7z", description="List files in a 7z archive", source="tldr"),),
+            examples=(
+                ExampleSpec(
+                    command="7z l archive.7z",
+                    description="List files in a 7z archive",
+                    source="tldr",
+                ),
+            ),
         ),
         ToolSpec(
             name="unzip",
             summary="List, test and extract compressed files in a ZIP archive",
             category="archive",
-            examples=(ExampleSpec(command="unzip -l file.zip", description="List contents of a zip file", source="tldr"),),
+            examples=(
+                ExampleSpec(
+                    command="unzip -l file.zip",
+                    description="List contents of a zip file",
+                    source="tldr",
+                ),
+            ),
         ),
         ToolSpec(
             name="git",
             summary="Distributed version control system",
             category="vcs",
             subcommands=(
-                SubcommandSpec(name="reset", summary="Reset current HEAD to undo commits", source="tldr"),
-                SubcommandSpec(name="revert", summary="Create a new commit that undoes an existing commit", source="tldr"),
-                SubcommandSpec(name="stash", summary="Stash uncommitted changes in a dirty working directory", source="tldr"),
-                SubcommandSpec(name="rebase", summary="Reapply commits on top of another base tip", source="tldr"),
+                SubcommandSpec(
+                    name="reset", summary="Reset current HEAD to undo commits", source="tldr"
+                ),
+                SubcommandSpec(
+                    name="revert",
+                    summary="Create a new commit that undoes an existing commit",
+                    source="tldr",
+                ),
+                SubcommandSpec(
+                    name="stash",
+                    summary="Stash uncommitted changes in a dirty working directory",
+                    source="tldr",
+                ),
+                SubcommandSpec(
+                    name="rebase",
+                    summary="Reapply commits on top of another base tip",
+                    source="tldr",
+                ),
                 SubcommandSpec(name="log", summary="Show commit logs", source="tldr"),
             ),
             examples=(
-                ExampleSpec(command="git reset --soft HEAD~1", description="Undo last commit keeping changes staged", source="tldr", subcommand="reset"),
+                ExampleSpec(
+                    command="git reset --soft HEAD~1",
+                    description="Undo last commit keeping changes staged",
+                    source="tldr",
+                    subcommand="reset",
+                ),
             ),
         ),
         ToolSpec(
@@ -141,57 +268,111 @@ def _build_realistic_corpus() -> list[ToolSpec]:
             summary="Recursively search the current directory for lines matching a pattern",
             category="text",
             flags=(
-                FlagSpec(short="-u", long="--unrestricted", description="Do not respect .gitignore files"),
-                FlagSpec(long="--no-ignore", description="Do not respect ignore files like .gitignore"),
+                FlagSpec(
+                    short="-u", long="--unrestricted", description="Do not respect .gitignore files"
+                ),
+                FlagSpec(
+                    long="--no-ignore", description="Do not respect ignore files like .gitignore"
+                ),
                 FlagSpec(short="-i", long="--ignore-case", description="Search case insensitively"),
             ),
-            examples=(ExampleSpec(command="rg --no-ignore 'TODO'", description="Search recursively ignoring gitignore", source="tldr"),),
+            examples=(
+                ExampleSpec(
+                    command="rg --no-ignore 'TODO'",
+                    description="Search recursively ignoring gitignore",
+                    source="tldr",
+                ),
+            ),
         ),
         ToolSpec(
             name="grep",
             summary="Print lines that match patterns",
             category="text",
             flags=(
-                FlagSpec(short="-r", long="--recursive", description="Search directories recursively"),
+                FlagSpec(
+                    short="-r", long="--recursive", description="Search directories recursively"
+                ),
                 FlagSpec(short="-i", long="--ignore-case", description="Ignore case distinctions"),
-                FlagSpec(short="-n", long="--line-number", description="Prefix each line with line number"),
+                FlagSpec(
+                    short="-n",
+                    long="--line-number",
+                    description="Prefix each line with line number",
+                ),
             ),
         ),
         ToolSpec(
             name="jq",
             summary="Command-line JSON processor",
             category="text",
-            examples=(ExampleSpec(command="jq '.' data.json", description="Pretty-print a JSON file", source="tldr"),),
+            examples=(
+                ExampleSpec(
+                    command="jq '.' data.json",
+                    description="Pretty-print a JSON file",
+                    source="tldr",
+                ),
+            ),
         ),
         ToolSpec(
             name="systemctl",
             summary="Control the systemd system and service manager",
             category="process",
             subcommands=(
-                SubcommandSpec(name="restart", summary="Stop and then start one or more service units", source="tldr"),
-                SubcommandSpec(name="status", summary="Show runtime status of service units", source="tldr"),
-                SubcommandSpec(name="enable", summary="Enable service units at boot", source="tldr"),
+                SubcommandSpec(
+                    name="restart",
+                    summary="Stop and then start one or more service units",
+                    source="tldr",
+                ),
+                SubcommandSpec(
+                    name="status", summary="Show runtime status of service units", source="tldr"
+                ),
+                SubcommandSpec(
+                    name="enable", summary="Enable service units at boot", source="tldr"
+                ),
             ),
-            examples=(ExampleSpec(command="systemctl restart nginx", description="Restart a systemd service", source="tldr"),),
+            examples=(
+                ExampleSpec(
+                    command="systemctl restart nginx",
+                    description="Restart a systemd service",
+                    source="tldr",
+                ),
+            ),
         ),
         ToolSpec(
             name="journalctl",
             summary="Query the systemd journal logs",
             category="process",
             flags=(
-                FlagSpec(short="-u", long="--unit", takes_value=True, value_hint="UNIT", description="Show logs for a systemd service unit"),
+                FlagSpec(
+                    short="-u",
+                    long="--unit",
+                    takes_value=True,
+                    value_hint="UNIT",
+                    description="Show logs for a systemd service unit",
+                ),
                 FlagSpec(short="-f", long="--follow", description="Follow live journal output"),
             ),
-            examples=(ExampleSpec(command="journalctl -u nginx -f", description="Follow logs for a systemd service", source="tldr"),),
+            examples=(
+                ExampleSpec(
+                    command="journalctl -u nginx -f",
+                    description="Follow logs for a systemd service",
+                    source="tldr",
+                ),
+            ),
         ),
         ToolSpec(
             name="uv",
             summary="An extremely fast Python package and project manager",
             category="package",
             subcommands=(
-                SubcommandSpec(name="venv", summary="Create a Python virtual environment", source="help_probe"),
-                SubcommandSpec(name="add", summary="Add dependencies to a project", source="help_probe"),
-                SubcommandSpec(name="sync", summary="Update the project environment", source="help_probe"),
+                SubcommandSpec(
+                    name="venv", summary="Create a Python virtual environment", source="help_probe"
+                ),
+                SubcommandSpec(
+                    name="add", summary="Add dependencies to a project", source="help_probe"
+                ),
+                SubcommandSpec(
+                    name="sync", summary="Update the project environment", source="help_probe"
+                ),
             ),
         ),
         ToolSpec(
@@ -201,7 +382,9 @@ def _build_realistic_corpus() -> list[ToolSpec]:
             category="container",
             subcommands=(
                 SubcommandSpec(name="ps", summary="List running containers", source="tldr"),
-                SubcommandSpec(name="run", summary="Run a command in a new container", source="tldr"),
+                SubcommandSpec(
+                    name="run", summary="Run a command in a new container", source="tldr"
+                ),
                 SubcommandSpec(name="logs", summary="Fetch the logs of a container", source="tldr"),
             ),
         ),
@@ -210,25 +393,53 @@ def _build_realistic_corpus() -> list[ToolSpec]:
             summary="Fast, versatile, remote and local file-copying and synchronization tool",
             category="network",
             flags=(
-                FlagSpec(short="-a", long="--archive", description="Archive mode preserving permissions, symlinks, timestamps"),
+                FlagSpec(
+                    short="-a",
+                    long="--archive",
+                    description="Archive mode preserving permissions, symlinks, timestamps",
+                ),
                 FlagSpec(short="-v", long="--verbose", description="Increase verbosity"),
-                FlagSpec(short="-z", long="--compress", description="Compress file data during transfer"),
+                FlagSpec(
+                    short="-z", long="--compress", description="Compress file data during transfer"
+                ),
             ),
-            examples=(ExampleSpec(command="rsync -avz src/ user@host:dst/", description="Sync files over SSH preserving permissions", source="tldr"),),
+            examples=(
+                ExampleSpec(
+                    command="rsync -avz src/ user@host:dst/",
+                    description="Sync files over SSH preserving permissions",
+                    source="tldr",
+                ),
+            ),
         ),
         ToolSpec(
             name="scp",
             summary="OpenSSH secure file copy over SSH",
             category="network",
-            examples=(ExampleSpec(command="scp file.txt user@host:/tmp/", description="Copy file to remote host over SSH", source="tldr"),),
+            examples=(
+                ExampleSpec(
+                    command="scp file.txt user@host:/tmp/",
+                    description="Copy file to remote host over SSH",
+                    source="tldr",
+                ),
+            ),
         ),
         ToolSpec(
             name="ssh",
             summary="OpenSSH remote login client",
             category="network",
             flags=(
-                FlagSpec(short="-L", takes_value=True, value_hint="BIND", description="Local port forwarding tunnel"),
-                FlagSpec(short="-p", takes_value=True, value_hint="PORT", description="Port to connect to on remote host"),
+                FlagSpec(
+                    short="-L",
+                    takes_value=True,
+                    value_hint="BIND",
+                    description="Local port forwarding tunnel",
+                ),
+                FlagSpec(
+                    short="-p",
+                    takes_value=True,
+                    value_hint="PORT",
+                    description="Port to connect to on remote host",
+                ),
             ),
         ),
         ToolSpec(
@@ -236,16 +447,40 @@ def _build_realistic_corpus() -> list[ToolSpec]:
             summary="Transfer a URL and make HTTP requests",
             category="network",
             flags=(
-                FlagSpec(short="-X", long="--request", takes_value=True, value_hint="METHOD", description="Specify HTTP request method"),
-                FlagSpec(short="-H", long="--header", takes_value=True, value_hint="HEADER", description="Pass custom header"),
-                FlagSpec(short="-d", long="--data", takes_value=True, value_hint="DATA", description="HTTP POST data"),
+                FlagSpec(
+                    short="-X",
+                    long="--request",
+                    takes_value=True,
+                    value_hint="METHOD",
+                    description="Specify HTTP request method",
+                ),
+                FlagSpec(
+                    short="-H",
+                    long="--header",
+                    takes_value=True,
+                    value_hint="HEADER",
+                    description="Pass custom header",
+                ),
+                FlagSpec(
+                    short="-d",
+                    long="--data",
+                    takes_value=True,
+                    value_hint="DATA",
+                    description="HTTP POST data",
+                ),
             ),
         ),
         ToolSpec(
             name="chmod",
             summary="Change file mode bits and permissions",
             category="filesystem",
-            examples=(ExampleSpec(command="chmod +x script.sh", description="Make a file executable", source="tldr"),),
+            examples=(
+                ExampleSpec(
+                    command="chmod +x script.sh",
+                    description="Make a file executable",
+                    source="tldr",
+                ),
+            ),
         ),
         ToolSpec(
             name="chown",
@@ -257,20 +492,43 @@ def _build_realistic_corpus() -> list[ToolSpec]:
             summary="Stream editor for filtering and transforming text",
             category="text",
             flags=(FlagSpec(short="-i", long="--in-place", description="Edit files in place"),),
-            examples=(ExampleSpec(command="sed -i 's/old/new/g' file.txt", description="Replace text in place in a file", source="tldr"),),
+            examples=(
+                ExampleSpec(
+                    command="sed -i 's/old/new/g' file.txt",
+                    description="Replace text in place in a file",
+                    source="tldr",
+                ),
+            ),
         ),
         ToolSpec(
             name="awk",
             summary="Pattern scanning and text column processing language",
             category="text",
-            flags=(FlagSpec(short="-F", takes_value=True, value_hint="SEP", description="Field separator delimiter"),),
-            examples=(ExampleSpec(command="awk -F, '{print $2}' data.csv", description="Extract second column from CSV", source="tldr"),),
+            flags=(
+                FlagSpec(
+                    short="-F",
+                    takes_value=True,
+                    value_hint="SEP",
+                    description="Field separator delimiter",
+                ),
+            ),
+            examples=(
+                ExampleSpec(
+                    command="awk -F, '{print $2}' data.csv",
+                    description="Extract second column from CSV",
+                    source="tldr",
+                ),
+            ),
         ),
         ToolSpec(
             name="ps",
             summary="Report a snapshot of the current running processes",
             category="process",
-            examples=(ExampleSpec(command="ps aux", description="List all running processes", source="tldr"),),
+            examples=(
+                ExampleSpec(
+                    command="ps aux", description="List all running processes", source="tldr"
+                ),
+            ),
         ),
         ToolSpec(
             name="pkill",
@@ -281,7 +539,13 @@ def _build_realistic_corpus() -> list[ToolSpec]:
             name="ffmpeg",
             summary="FFmpeg multimedia video and audio converter",
             category="media",
-            examples=(ExampleSpec(command="ffmpeg -i input.mp4 output.mp3", description="Extract audio from mp4 video", source="tldr"),),
+            examples=(
+                ExampleSpec(
+                    command="ffmpeg -i input.mp4 output.mp3",
+                    description="Extract audio from mp4 video",
+                    source="tldr",
+                ),
+            ),
         ),
         ToolSpec(
             name="sha256sum",

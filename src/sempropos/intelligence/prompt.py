@@ -291,9 +291,7 @@ def build_prompt(
         truncated = _truncate_candidates(candidates, max_tools, max_subs, max_flags, max_examples)
         formatted = context_to_str(truncated)
         total_words = (
-            _word_count(SYSTEM_INSTRUCTION)
-            + _word_count(normalized_query)
-            + _word_count(formatted)
+            _word_count(SYSTEM_INSTRUCTION) + _word_count(normalized_query) + _word_count(formatted)
         )
         prompt = StructuredPrompt(
             system=SYSTEM_INSTRUCTION,

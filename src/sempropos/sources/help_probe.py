@@ -180,7 +180,7 @@ _FLAG_ENTRY_RE = re.compile(
     r"^\s{1,8}(?P<head>--?[A-Za-z0-9?@#][A-Za-z0-9._={}\[\]|/@!*:-]*"
     r"(?:,\s*--?[A-Za-z0-9][A-Za-z0-9._={}\[\]|/@!*:-]*)*"
     r"(?:\s+(?:<[^>]+>|\[[^\]]+\]|[A-Z][A-Z0-9_./-]{0,24}))?)"
-    r"(?:\s*:\s+|\s{2,})(?P<desc>.+)$"
+    r"(?:(?:\s*:\s+|\s{2,})(?P<desc>.+)|\s*)$"
 )
 _SUBCMD_ENTRY_RE = re.compile(
     r"^\s{1,6}(?P<name>[a-zA-Z0-9][a-zA-Z0-9._-]{0,28})"
@@ -337,6 +337,52 @@ def _is_preamble_candidate(stripped: str) -> bool:
     )
 
 
+def _try_add_subcommand(line: str, frag: HelpProbeFragment, seen_subs: set[str]) -> None:
+    if len(frag.subcommands) >= _MAX_SUBCOMMANDS:
+        return
+    m_sub = _SUBCMD_ENTRY_RE.match(line)
+    if not m_sub:
+        return
+    sub_name = m_sub.group("name").strip()
+    if sub_name not in seen_subs and not sub_name.startswith("-"):
+        seen_subs.add(sub_name)
+        frag.subcommands.append(
+            SubcommandSpec(
+                name=sub_name,
+                summary=" ".join(m_sub.group("desc").split())[:200],
+                source="help_probe",
+            )
+        )
+
+
+def _try_add_flag(
+    head: str,
+    desc: str,
+    section_name: str | None,
+    frag: HelpProbeFragment,
+    seen_flags: set[tuple[str | None, str | None]],
+) -> None:
+    if len(frag.flags) >= _MAX_FLAGS:
+        return
+    parsed = parse_flag_header(head, desc, section=section_name, source="help_probe")
+    if parsed is not None and parsed.canonical_key not in seen_flags:
+        seen_flags.add(parsed.canonical_key)
+        frag.flags.append(parsed)
+
+
+def _match_section_header(line: str, indent: int) -> tuple[str, str] | None:
+    if indent > 2:
+        return None
+    sec_match = _SECTION_HEADER_RE.match(line)
+    if not sec_match:
+        return None
+    raw_title = (sec_match.group("angle") or sec_match.group("colon") or "").strip()
+    classified = _classify_section(raw_title)
+    if classified != "other" or raw_title.upper() in ("USAGE", "EXAMPLES"):
+        return classified, raw_title
+    return None
+
+
 def parse_help_output(name: str, raw_text: str, binary_path: str = "") -> HelpProbeFragment:
     """Parse Clap, Cobra, Click/Typer, argparse, GNU, and 7-Zip ``--help`` outputs."""
     text = _ANSI_RE.sub("", raw_text)
@@ -351,11 +397,23 @@ def parse_help_output(name: str, raw_text: str, binary_path: str = "") -> HelpPr
     preamble_lines: list[str] = []
     seen_flags: set[tuple[str | None, str | None]] = set()
     seen_subs: set[str] = set()
+    pending_head: str | None = None
 
     for line in text.splitlines():
         stripped = line.strip()
         if not stripped:
+            if pending_head:
+                _try_add_flag(pending_head, "", section_name, frag, seen_flags)
+                pending_head = None
             continue
+
+        indent = len(line) - len(line.lstrip())
+        if pending_head is not None:
+            desc_line = stripped if (indent >= 6 and not stripped.startswith("-")) else ""
+            _try_add_flag(pending_head, desc_line, section_name, frag, seen_flags)
+            pending_head = None
+            if desc_line:
+                continue
 
         usage_match = _USAGE_RE.match(line)
         if usage_match:
@@ -365,48 +423,30 @@ def parse_help_output(name: str, raw_text: str, binary_path: str = "") -> HelpPr
             section_kind = "usage"
             continue
 
-        sec_match = _SECTION_HEADER_RE.match(line)
-        if sec_match and len(line) - len(line.lstrip()) <= 2:
-            raw_title = (sec_match.group("angle") or sec_match.group("colon") or "").strip()
-            classified = _classify_section(raw_title)
-            if classified != "other" or raw_title.upper() in ("USAGE", "EXAMPLES"):
-                section_kind = classified
-                section_name = raw_title
-                continue
-
-        if section_kind == "header":
-            if len(preamble_lines) < 3 and _is_preamble_candidate(stripped):
-                preamble_lines.append(stripped)
+        sec_change = _match_section_header(line, indent)
+        if sec_change is not None:
+            section_kind, section_name = sec_change
             continue
 
-        if section_kind == "commands":
-            m_sub = _SUBCMD_ENTRY_RE.match(line)
-            if m_sub and len(frag.subcommands) < _MAX_SUBCOMMANDS:
-                sub_name = m_sub.group("name").strip()
-                if sub_name not in seen_subs and not sub_name.startswith("-"):
-                    seen_subs.add(sub_name)
-                    frag.subcommands.append(
-                        SubcommandSpec(
-                            name=sub_name,
-                            summary=" ".join(m_sub.group("desc").split())[:200],
-                            source="help_probe",
-                        )
-                    )
-            continue
-
-        if section_kind in ("options", "usage", "other") and len(frag.flags) < _MAX_FLAGS:
+        if (
+            section_kind == "header"
+            and len(preamble_lines) < 3
+            and _is_preamble_candidate(stripped)
+        ):
+            preamble_lines.append(stripped)
+        elif section_kind == "commands":
+            _try_add_subcommand(line, frag, seen_subs)
+        elif section_kind in ("options", "usage", "other"):
             m_flag = _FLAG_ENTRY_RE.match(line)
             if m_flag:
-                parsed = parse_flag_header(
-                    m_flag.group("head"),
-                    m_flag.group("desc"),
-                    section=section_name,
-                    source="help_probe",
-                )
-                if parsed is not None and parsed.canonical_key not in seen_flags:
-                    seen_flags.add(parsed.canonical_key)
-                    frag.flags.append(parsed)
+                desc = (m_flag.group("desc") or "").strip()
+                if desc:
+                    _try_add_flag(m_flag.group("head"), desc, section_name, frag, seen_flags)
+                else:
+                    pending_head = m_flag.group("head")
 
+    if pending_head:
+        _try_add_flag(pending_head, "", section_name, frag, seen_flags)
     _finalize_help_summary(frag, preamble_lines)
     return frag
 

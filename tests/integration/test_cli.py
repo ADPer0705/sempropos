@@ -33,7 +33,9 @@ def _seed_cli_index(isolated_env: dict[str, Path]) -> None:
                 category="filesystem",
                 flags=(
                     FlagSpec(short="-s", long="--summarize", description="Display only a total"),
-                    FlagSpec(short="-h", long="--human-readable", description="Human readable sizes"),
+                    FlagSpec(
+                        short="-h", long="--human-readable", description="Human readable sizes"
+                    ),
                     FlagSpec(
                         short="-d",
                         long="--max-depth",
@@ -110,7 +112,12 @@ def test_normalize_argv_disambiguates_multiword_verb_queries() -> None:
 
     # Multi-word natural language starting with `check` or `update` MUST route to `ask`!
     assert _normalize_argv(["check", "open", "ports"]) == ["ask", "check", "open", "ports"]
-    assert _normalize_argv(["update", "system", "packages"]) == ["ask", "update", "system", "packages"]
+    assert _normalize_argv(["update", "system", "packages"]) == [
+        "ask",
+        "update",
+        "system",
+        "packages",
+    ]
     assert _normalize_argv(["list", "files"]) == ["ask", "list", "files"]
     assert _normalize_argv(["--porcelain", "--", "-name flag"]) == [
         "ask",
@@ -154,9 +161,7 @@ def test_cli_tri_modal_search_show_ask_and_porcelain(isolated_env: dict[str, Pat
     assert porc_ask.exit_code == 0, porc_ask.output
     assert porc_ask.stdout.strip() == "ss -tulnp"
 
-    json_ask = runner.invoke(
-        app, ["ask", "show disk usage by folder", "--json", "--no-daemon"]
-    )
+    json_ask = runner.invoke(app, ["ask", "show disk usage by folder", "--json", "--no-daemon"])
     assert json_ask.exit_code == 0
     ask_data = json.loads(json_ask.stdout)
     assert ask_data["command"] == "du -sh *"

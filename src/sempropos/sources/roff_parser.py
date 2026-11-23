@@ -287,6 +287,11 @@ def clean_roff_inline(text: str) -> str:
     for src, dst in replacements:
         s = s.replace(src, dst)
 
+    # Strip OSC-8 / device control escapes like `\X'tty: link https://...'` (GNU coreutils help2man)
+    s = re.sub(r"\\X'[^']*'", "", s)
+    # Strip color escapes `\m[blue]`, `\m[]`, `\M[...]` and vertical shifts `\u`, `\d`
+    s = re.sub(r"\\[mM](?:\[[^\]]*\]|\(..|.)", "", s)
+    s = re.sub(r"\\[ud]", "", s)
     # Font switches: \fB, \f(CW, \f[BI]
     s = re.sub(r"\\f(?:\[[^\]]*\]|\(..|.)", "", s)
     # Size changes: \s-1, \s+2, \s0, \s[10]
@@ -357,13 +362,18 @@ def parse_flag_header(
     source: SourceKind = "man_roff",
 ) -> FlagSpec | None:
     """Parse a flag header line like ``-d, --max-depth=N`` into a ``FlagSpec``."""
-    cleaned = " ".join(header.strip().split())
-    if not cleaned or not cleaned.startswith("-") or cleaned in ("-", "--") or cleaned.startswith("---"):
+    cleaned = " ".join(header.strip().split()).rstrip(":")
+    if (
+        not cleaned
+        or not cleaned.startswith("-")
+        or cleaned in ("-", "--")
+        or cleaned.startswith("---")
+    ):
         return None
     if re.match(r"^-\s+", cleaned):
         return None
 
-    parts = re.split(r",\s*(?=-)|\s+\|\s+(?=-)", cleaned)
+    parts = re.split(r",\s*(?=-)|\s+[/|]\s+(?=-)", cleaned)
     short_flag: str | None = None
     long_flag: str | None = None
     value_hint: str | None = None
@@ -403,6 +413,44 @@ def parse_flag_header(
 def _is_option_section(section_name: str) -> bool:
     upper = section_name.upper()
     return any(tok in upper for tok in _OPTION_SECTION_TOKENS)
+
+
+_NON_FLAG_SECTIONS = (
+    "NAME",
+    "SYNOPSIS",
+    "EXAMPLE",
+    "SEE ALSO",
+    "AUTHOR",
+    "COPYRIGHT",
+    "LICENSE",
+    "BUG",
+    "REPORTING",
+    "HISTORY",
+    "EXIT STATUS",
+    "RETURN VALUE",
+    "ENVIRONMENT",
+    "FILES",
+)
+
+
+def _is_flag_eligible_section(section_name: str) -> bool:
+    upper = section_name.upper()
+    if _is_option_section(upper) or "DESCRIPTION" in upper:
+        return True
+    return bool(upper) and not any(bad in upper for bad in _NON_FLAG_SECTIONS)
+
+
+def _extract_subcommand_name(header: str, tool_name: str) -> str | None:
+    """Extract subcommand name from headers like ``git-add(1)`` or ``commit``."""
+    first = header.split()[0].strip(",:")
+    # Strip trailing man section `(1)` / `(8)`
+    first = re.sub(r"\(\d[a-zA-Z]*\)$", "", first)
+    prefix = f"{tool_name}-"
+    if first.startswith(prefix):
+        first = first[len(prefix) :]
+    if re.match(r"^[a-z][a-z0-9_-]{0,28}$", first) and first != tool_name:
+        return first
+    return None
 
 
 def _looks_like_shell_command(line: str, tool_name: str, *, in_code_block: bool = False) -> bool:
@@ -476,9 +524,7 @@ def _extract_name_summary(name_text: str, fallback_name: str) -> tuple[str, list
     left, summary = match.group(1), match.group(2).strip()
     names = [n.strip() for n in re.split(r"[,\s]+", left) if n.strip()]
     aliases = [
-        n
-        for n in names
-        if n != fallback_name and re.match(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$", n)
+        n for n in names if n != fallback_name and re.match(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$", n)
     ]
     return summary[:_MAX_SUMMARY], aliases
 
@@ -605,26 +651,29 @@ def _parse_man7(raw: str, tool_name: str) -> ParsedManDocument:  # noqa: C901
             if joined:
                 doc.synopsis.append(joined)
             cur_syn_line = []
+
     cur_desc_para: list[str] = []
     see_also_lines: list[str] = []
     example_lines: list[tuple[str, bool]] = []
 
-    # Active tagged paragraph (.TP / .TQ / .IP) state
+    # Active tagged paragraph (.TP / .TQ / .IP / DocBook .PP + .RS) state
     expect_tp_header = False
     pending_headers: list[str] = []
     active_header: str | None = None
     active_body: list[str] = []
+    last_plain_line: str | None = None
+    in_docbook_rs = False
 
     def flush_tagged() -> None:
-        nonlocal active_header, active_body, pending_headers
+        nonlocal active_header, active_body, pending_headers, in_docbook_rs
         if not active_header:
+            in_docbook_rs = False
             return
         body_text = " ".join(active_body).strip()
         sec_upper = section.upper()
         headers_to_parse = [*pending_headers, active_header]
-        # Capture flags from OPTIONS-style sections AND flag-headed paragraphs inside DESCRIPTION!
-        is_flag_zone = _is_option_section(sec_upper) or "DESCRIPTION" in sec_upper
-        if is_flag_zone:
+        if _is_flag_eligible_section(sec_upper):
+            parsed_any = False
             for hdr in headers_to_parse:
                 parsed_flag = parse_flag_header(
                     hdr,
@@ -634,19 +683,23 @@ def _parse_man7(raw: str, tool_name: str) -> ParsedManDocument:  # noqa: C901
                 )
                 if parsed_flag is not None:
                     doc.flags.append(parsed_flag)
-        elif "COMMAND" in sec_upper and body_text:
-            cmd_tok = active_header.split()[0].strip(",:")
-            if re.match(r"^[a-z][a-z0-9_-]{1,28}$", cmd_tok) and cmd_tok != tool_name:
-                doc.subcommands.append(
-                    SubcommandSpec(
-                        name=cmd_tok,
-                        summary=body_text[:200],
-                        source="man_roff",
+                    parsed_any = True
+            if not parsed_any and "COMMAND" in sec_upper and body_text:
+                sub_name = _extract_subcommand_name(active_header, tool_name)
+                if sub_name:
+                    doc.subcommands.append(
+                        SubcommandSpec(name=sub_name, summary=body_text[:200], source="man_roff")
                     )
+        elif "COMMAND" in sec_upper and body_text:
+            sub_name = _extract_subcommand_name(active_header, tool_name)
+            if sub_name:
+                doc.subcommands.append(
+                    SubcommandSpec(name=sub_name, summary=body_text[:200], source="man_roff")
                 )
         active_header = None
         active_body = []
         pending_headers = []
+        in_docbook_rs = False
 
     def flush_desc_para() -> None:
         nonlocal cur_desc_para
@@ -742,16 +795,31 @@ def _parse_man7(raw: str, tool_name: str) -> ParsedManDocument:  # noqa: C901
                 continue
 
             if macro == "IP":
+                ip_args = _split_macro_args(rest)
+                hdr = clean_roff_inline(ip_args[0]) if ip_args else ""
+                # Bare `.IP` (used by ronn/pandoc in jq.1) continues the active `.TP` body!
+                if not hdr and active_header is not None:
+                    continue
                 flush_tagged()
                 flush_desc_para()
-                ip_args = _split_macro_args(rest)
-                if ip_args:
-                    hdr = clean_roff_inline(ip_args[0])
-                    if hdr and hdr not in ("*", "•", "o", "-"):
-                        active_header = hdr
+                if hdr and hdr not in ("*", "•", "o", "-"):
+                    active_header = hdr
                 continue
 
-            if macro in ("PP", "LP", "P", "sp", "br", "RE"):
+            if macro == "RS":
+                # DocBook pattern: `.PP` -> header line -> `.RS 4` -> description -> `.RE`
+                if active_header is None and last_plain_line:
+                    active_header = last_plain_line
+                    in_docbook_rs = True
+                    last_plain_line = None
+                continue
+
+            if macro == "RE":
+                if in_docbook_rs:
+                    flush_tagged()
+                continue
+
+            if macro in ("PP", "LP", "P", "sp", "br"):
                 if expect_tp_header:
                     continue
                 if "SYNOPSIS" in section:
@@ -759,6 +827,7 @@ def _parse_man7(raw: str, tool_name: str) -> ParsedManDocument:  # noqa: C901
                 if macro in ("PP", "LP", "P"):
                     flush_tagged()
                     flush_desc_para()
+                    last_plain_line = None
                 if "EXAMPLE" in section.upper() and macro in ("PP", "LP", "P", "sp"):
                     example_lines.append(("", in_code))
                 continue
@@ -795,10 +864,13 @@ def _parse_man7(raw: str, tool_name: str) -> ParsedManDocument:  # noqa: C901
         elif "DESCRIPTION" in section:
             if len(desc_paragraphs) < 2:
                 cur_desc_para.append(rendered)
+            last_plain_line = rendered
         elif "EXAMPLE" in section:
             example_lines.append((rendered, in_code))
         elif "SEE ALSO" in section:
             see_also_lines.append(rendered)
+        else:
+            last_plain_line = rendered
 
     flush_tagged()
     flush_desc_para()
@@ -861,7 +933,22 @@ def _render_mdoc_tokens(tokens: list[str], tool_name: str) -> str:
             out.append(f"{tokens[i + 1]}({tokens[i + 2]})")
             i += 3
             continue
-        if tok in ("Cm", "Ql", "Sq", "Dq", "Pq", "Pa", "Ev", "Ic", "Li", "Va", "Em", "Sy", "No", "Ns"):
+        if tok in (
+            "Cm",
+            "Ql",
+            "Sq",
+            "Dq",
+            "Pq",
+            "Pa",
+            "Ev",
+            "Ic",
+            "Li",
+            "Va",
+            "Em",
+            "Sy",
+            "No",
+            "Ns",
+        ):
             i += 1
             continue
         out.append(tok)

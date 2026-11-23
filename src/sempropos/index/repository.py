@@ -485,9 +485,7 @@ def index_stats(conn: sqlite3.Connection) -> IndexStats:
     subcommand_count = int(conn.execute("SELECT COUNT(*) FROM subcommands").fetchone()[0])
     flag_count = int(conn.execute("SELECT COUNT(*) FROM flags").fetchone()[0])
     example_count = int(conn.execute("SELECT COUNT(*) FROM examples").fetchone()[0])
-    tools_with_flags = int(
-        conn.execute("SELECT COUNT(DISTINCT tool_id) FROM flags").fetchone()[0]
-    )
+    tools_with_flags = int(conn.execute("SELECT COUNT(DISTINCT tool_id) FROM flags").fetchone()[0])
     tools_with_examples = int(
         conn.execute("SELECT COUNT(DISTINCT tool_id) FROM examples").fetchone()[0]
     )

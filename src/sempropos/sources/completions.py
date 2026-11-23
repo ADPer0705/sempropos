@@ -116,17 +116,22 @@ def parse_fish_completion(raw: str, tool_name: str, location: str = "") -> Compl
         except ValueError:
             continue
 
-        short_flag, long_flag, desc, takes_value, args_value, condition = (
-            _parse_fish_line_tokens(tokens)
+        short_flag, long_flag, desc, takes_value, args_value, condition = _parse_fish_line_tokens(
+            tokens
         )
 
         if not short_flag and not long_flag and args_value:
-            if "__fish_use_subcommand" in condition or "not __fish_seen_subcommand_from" in condition:
+            if (
+                "__fish_use_subcommand" in condition
+                or "not __fish_seen_subcommand_from" in condition
+            ):
                 for sub_tok in args_value.split():
                     if re.match(r"^[a-z][a-z0-9_-]{0,28}$", sub_tok) and sub_tok not in seen_subs:
                         seen_subs.add(sub_tok)
                         frag.subcommands.append(
-                            SubcommandSpec(name=sub_tok, summary=desc[:200], source="completion_fish")
+                            SubcommandSpec(
+                                name=sub_tok, summary=desc[:200], source="completion_fish"
+                            )
                         )
             continue
 

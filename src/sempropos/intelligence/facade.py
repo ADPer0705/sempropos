@@ -83,9 +83,7 @@ def detect_synthesis_provider() -> tuple[str, SynthesisConfig]:
     elif provider == "tier0":
         return "tier0", role
 
-    raise ProviderUnavailableError(
-        f"Configured synthesis provider '{provider}' is not available."
-    )
+    raise ProviderUnavailableError(f"Configured synthesis provider '{provider}' is not available.")
 
 
 def detect_embedding_provider() -> tuple[str, EmbeddingConfig]:
@@ -106,9 +104,7 @@ def detect_embedding_provider() -> tuple[str, EmbeddingConfig]:
         if _ollama.is_available(role.base_url):
             return "ollama", role
 
-    raise ProviderUnavailableError(
-        f"Configured embedding provider '{provider}' is not available."
-    )
+    raise ProviderUnavailableError(f"Configured embedding provider '{provider}' is not available.")
 
 
 def is_embedding_model_warm() -> bool:

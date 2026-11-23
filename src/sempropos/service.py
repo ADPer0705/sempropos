@@ -467,7 +467,8 @@ class SemService:
                         (st.tools_with_flags / st.tool_count * 100.0) if st.tool_count else 0.0, 1
                     ),
                     "example_coverage_pct": round(
-                        (st.tools_with_examples / st.tool_count * 100.0) if st.tool_count else 0.0, 1
+                        (st.tools_with_examples / st.tool_count * 100.0) if st.tool_count else 0.0,
+                        1,
                     ),
                     "source_counts": st.source_counts,
                 }

@@ -99,7 +99,12 @@ def test_single_connection_candidate_loading_with_subcommands_and_flags(
             ),
         ),
         flags=(
-            FlagSpec(short="-C", takes_value=True, value_hint="PATH", description="Run as if started in PATH"),
+            FlagSpec(
+                short="-C",
+                takes_value=True,
+                value_hint="PATH",
+                description="Run as if started in PATH",
+            ),
             FlagSpec(long="--version", description="Print git version"),
         ),
     )

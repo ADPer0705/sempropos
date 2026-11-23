@@ -224,7 +224,9 @@ def test_builder_incremental_upsert_prune_and_id_keyed_embeddings(
         norms = np.linalg.norm(out, axis=1, keepdims=True)
         return (out / norms).astype(np.float32)
 
-    monkeypatch.setattr(builder, "detect_embedding_provider", lambda: ("fastembed_local", config.EmbeddingConfig()))
+    monkeypatch.setattr(
+        builder, "detect_embedding_provider", lambda: ("fastembed_local", config.EmbeddingConfig())
+    )
     monkeypatch.setattr(builder, "embed_texts", fake_embed)
     monkeypatch.setenv("PATH", str(bin_dir))
     monkeypatch.setenv("MANPATH", str(tmp_path / "man"))
@@ -233,7 +235,9 @@ def test_builder_incremental_upsert_prune_and_id_keyed_embeddings(
     config.save_config(
         config.AppConfig(
             embedding=config.EmbeddingConfig(provider="fastembed_local", model="test-model"),
-            indexing=config.IndexingConfig(enable_tldr=False, enable_completions=False, probe_help=False),
+            indexing=config.IndexingConfig(
+                enable_tldr=False, enable_completions=False, probe_help=False
+            ),
         )
     )
 
