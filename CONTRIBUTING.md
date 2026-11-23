@@ -1,61 +1,35 @@
 # Contributing to sem
 
-First off, thank you for considering contributing to `sem` (the `sempropos` package)! People like you make this tool better for everyone.
+Thank you for contributing to `sem` (`sempropos`)!
 
-## Table of Contents
+## Principles
 
-- [Code of Conduct](#code-of-conduct)
-- [How Can I Contribute?](#how-can-i-contribute)
-  - [Reporting Bugs](#reporting-bugs)
-  - [Suggesting Enhancements](#suggesting-enhancements)
-  - [Pull Requests](#pull-requests)
-- [Development Setup](#development-setup)
-
-## Code of Conduct
-
-By participating in this project, you are expected to uphold general open-source standards of respect and collaboration. Please be nice to each other.
-
-## How Can I Contribute?
-
-### Reporting Bugs
-
-- Ensure the bug was not already reported by searching on GitHub under [Issues](https://github.com/ADPer0705/sempropos/issues).
-- If you're unable to find an open issue addressing the problem, open a new one. Be sure to include a title and clear description, as well as the expected vs actual behavior.
-
-### Suggesting Enhancements
-
-- First check [ROADMAP.md](ROADMAP.md) for known gaps and planned work — it is
-  the fastest way to find something concrete to contribute.
-- Open a new issue with a clear title and description.
-- Explain why this enhancement would be useful to most users.
-- Keep in mind the core constraint of this project: **fully local, privacy-first, offline-first**.
-
-### Pull Requests
-
-1. Fork the repo and create your branch from `main`.
-2. If you've added code that should be tested, add tests.
-3. Update the documentation if your changes require it.
-4. Ensure the package still imports cleanly (the full test suite is being rebuilt):
-
-   ```bash
-   python -c "import sempropos.cli, sempropos.index, sempropos.retrieval, sempropos.sources"
-   ```
-
-5. Keep provider integration tests deterministic: mock/offline by default.
-6. Open a Pull Request!
+- **Offline-first & privacy-first:** Running `sem` and running the test suite must never require an API key or cloud account.
+- **Deterministic tests:** All unit, integration, and retrieval evaluation tests run offline with mocked providers. Opt-in live tests must use `@pytest.mark.live`.
+- **Strict typing & formatting:** All code under `src/` must pass `mypy src/` (strict mode) and `ruff check` / `ruff format --check`.
 
 ## Development Setup
 
-1. Clone the repository: `git clone https://github.com/ADPer0705/sempropos.git`
-2. Create a virtual environment: `uv venv`
-3. Activate the environment: `source .venv/bin/activate` 
-4. Install with development dependencies: `uv sync`
-5. To test retrieval locally, run `sem install` (or `sem update` if you already have an index) to bootstrap the index.
+```bash
+git clone https://github.com/ADPer0705/sempropos.git
+cd sempropos
+uv sync --group dev
+make check-all
+```
 
-### Test Policy
+## Running Checks
 
-- The full test suite is being rebuilt; CI currently performs an import smoke check.
-- Default test mode is mocked/offline for provider integrations.
-- Live provider checks (if any) should be opt-in and never required for CI.
-- Standard test runs must not require any API key.
+```bash
+make lint        # ruff lint + format check
+make typecheck   # strict mypy src/
+make test        # full pytest suite (unit + integration + retrieval benchmark)
+make eval        # 37-query golden retrieval benchmark only
+make build       # build wheel/sdist and check with twine
+```
 
+## Pull Requests
+
+1. Check [ROADMAP.md](ROADMAP.md) or open an issue for larger architectural changes.
+2. Add or update unit/integration tests covering your changes.
+3. For retrieval changes, ensure `tests/eval/test_retrieval_benchmark.py` passes and add a regression case for any ranking bug you fix.
+4. Run `make check-all` before submitting.

@@ -1,37 +1,49 @@
-.PHONY : clean install-dev format lint help
+.PHONY: clean install-dev format lint typecheck test eval check-all build help
 .DEFAULT_GOAL := help
 
 clean:
 	@echo "Cleaning project..."
-	rm -rf .pytest_cache build dist htmlcov .coverage .ruff_cache
+	rm -rf .pytest_cache build dist htmlcov .coverage .ruff_cache .mypy_cache
 	find . -name "__pycache__" -type d -exec rm -rf {} +
 	find . -name "*.pyc" -delete
 	find . -name "*.pyo" -delete
 	find . -name ".DS_Store" -delete
 	find . -name "*.egg-info" -type d -exec rm -rf {} +
-	find . -name "htmlcov" -type d -exec rm -rf {} +
-	find . -name ".ruff_cache" -type d -exec rm -rf {} +
-	find . -name ".mypy_cache" -type d -exec rm -rf {} +
-
-
 
 install-dev:
-	@echo "Installing development dependencies..."
-	uv sync
+	uv sync --group dev
 
 format:
-	@echo "Formatting code with ruff..."
-	uv run ruff format src/
-	uv run ruff check --fix src/
+	uv run ruff format src/ tests/
+	uv run ruff check --fix src/ tests/
 
 lint:
-	@echo "Running ruff checks..."
-	uv run ruff check src/
+	uv run ruff check src/ tests/
+	uv run ruff format --check src/ tests/
+
+typecheck:
+	uv run mypy src/
+
+test:
+	uv run pytest -v
+
+eval:
+	uv run pytest tests/eval/ -v
+
+check-all: lint typecheck test
+
+build: clean
+	uv run python -m build
+	uv run twine check dist/*
 
 help:
 	@echo "Available targets:"
-	@echo "  clean   - Remove build artifacts and temporary files"
-	@echo "  install-dev - Install editable package with development dependencies"
-	@echo "  format   - Format code with ruff"
-	@echo "  lint    - Run ruff lint checks"
-	@echo "  help    - Show this help message"
+	@echo "  install-dev - Install package with dev dependencies"
+	@echo "  format      - Format and autofix with ruff"
+	@echo "  lint        - Run ruff lint and format checks"
+	@echo "  typecheck   - Run strict mypy checks on src/"
+	@echo "  test        - Run full pytest suite (unit, integration, retrieval eval)"
+	@echo "  eval        - Run golden retrieval benchmark suite"
+	@echo "  check-all   - Run lint, typecheck, and test"
+	@echo "  build       - Build wheel/sdist and validate with twine"
+	@echo "  clean       - Remove build and cache artifacts"

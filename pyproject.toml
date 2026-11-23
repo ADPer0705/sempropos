@@ -1,24 +1,26 @@
 [project]
 name = "sempropos"
-version = "0.3.0"
-description = "Offline CLI command synthesis from local man pages"
+version = "1.0.0"
+description = "Instant offline CLI replacement for apropos, --help, and man pages"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 keywords = [
     "cli",
+    "apropos",
     "command-synthesis",
     "llm",
     "local-ai",
     "man-pages",
+    "tldr",
     "offline",
     "shell",
 ]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Natural Language :: English",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",

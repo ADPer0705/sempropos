@@ -5,184 +5,123 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Build Status](https://github.com/ADPer0705/sempropos/actions/workflows/ci.yml/badge.svg)](https://github.com/ADPer0705/sempropos/actions)
 
-`sem` (distributed as the `sempropos` package) is an open-source, local,
-offline-first CLI tool that turns a natural-language task description into a
-shell command. It retrieves relevant context from your system's local man pages
-and synthesizes the output using a local model.
+`sem` (distributed as the `sempropos` package) is an **instant, offline-first CLI replacement for `apropos`, `--help`, and `man`**. It indexes every command installed on your machine into a canonical structured `ToolSpec` representation and gives you fast answers in three modes:
 
-Say goodbye to complex web searches just to find the right flag — `sem` keeps it
-entirely on your machine.
+1. **Synthesize (`sem "..."` / `Ctrl+S`):** Turn plain English into a grounded, safety-checked shell command with optional flag-by-flag breakdowns.
+2. **Inspect (`sem show <tool> [subcommand]`):** Instant 0ms-LLM structured cheat-sheet cards replacing `man` and `--help` (usage, subcommands, searchable flags, verified examples).
+3. **Discover (`sem search <query>`):** Instant 0ms-LLM ranked tool search replacing `apropos`.
 
-## ✨ Features
+## ✨ Key Features
 
-- **Privacy First, Offline First:** No API keys, no telemetry, no cloud backend required. Run entirely on your machine.
-- **Local SQLite Index:** Fast retrieval of man pages (sections 1 and 8).
-- **Semantic Retrieval:** BM25-primary hybrid ranking with an exact-tool-name boost. Embedding similarity adds recall and breaks exact ties, so a weak embedding match can never outrank a confident lexical one.
-- **Fast local inference:** Uses Ollama (with reasoning disabled and the model kept warm) for near-instant answers, and falls back to showing matched man pages when no model is available.
-- **Pluggable providers:** Ollama out of the box, plus any OpenAI-compatible endpoint (vLLM, LM Studio, llama.cpp server, a gateway…). More providers are on the way.
-- **Shell integration:** Press `Ctrl+S` to turn the natural-language sentence you just typed into a command, in place.
-- **Smart staleness checks:** Detects when your package manager updates software and gently prompts an index refresh.
+- **Canonical Structured `ToolSpec` Pipeline:** Merges four complementary local sources into one typed, content-hashed SQLite v3 index:
+  - Direct **`man(7)` / `mdoc(7)` macro parser** (reads compressed `.gz`/`.xz`/`.bz2`/`.zst` man pages directly from disk, capturing GNU coreutils flags inside `DESCRIPTION` and filtering out prose from `EXAMPLES`).
+  - Offline **`tldr-pages` cache/snapshot** (task-focused summaries, verified examples, and hyphenated subcommands like `git-commit`, `docker-run`).
+  - Static **Fish & Zsh shell completion parsers** (zero code execution).
+  - **Safe `--help` probe** for non-man `$PATH` binaries (`7z`, `uv`, `ruff`, `cargo`, custom CLIs) with strict denylist, setuid exclusion, headless env, and hard timeouts.
+- **High-Precision Local Retrieval:** Porter-stemmed multi-column SQLite FTS5 (`name`, `aliases`, `summary`, `tags`, `subcommands`, `examples`, `flags`), file-extension/artifact hints (`.7z`, `.tar.gz`, `.json`, `.service`), compound intent matching, and confidence-gated vector recall (`fastembed`).
+- **Task-Tailored Local Models + Clean External Providers:**
+  - **Built-in managed GGUF (`local_gguf`):** Curated small CLI-tuned models (`tiny` 0.5B, `balanced` 1.5B, `quality` 3B) with JSON-schema grammar constraints via `sempropos[local-llm]` (`llama-cpp-python`) or standalone `llama-server`.
+  - **Pure-HTTP Ollama & OpenAI-compatible:** Zero extra SDKs, structured JSON output, configurable endpoints.
+  - **Tier-0 deterministic mode:** Instant zero-LLM example matching and structured ToolSpec cards when offline or unconfigured.
+- **Auto-Managed Warm Daemon:** Lightweight Unix-domain-socket daemon (`0600` private socket) with automatic idle shutdown (15m default) keeps SQLite, embeddings, and local models hot for sub-200ms queries and `Ctrl+S` transforms—with transparent in-process fallback.
+- **Command Grounding & Safety Warnings:** Verifies the executable exists on `$PATH`, cross-checks generated flags against `ToolSpec` to power `--explain`, and warns clearly on `caution` / `destructive` operations (`rm -rf`, `find -delete`, `dd of=/dev/...`, `git reset --hard`, `curl | bash`, etc.).
 
 ## 🚀 Quick Start
 
-### Install with `uv` (recommended)
-
 ```bash
 uv tool install sempropos
-sem install          # check requirements, download the embedding model, build the index
+sem install                     # build structured v3 index (man + tldr + completions + safe --help)
 ```
 
-### Install from source
+Optional: enable built-in local GGUF synthesis without Ollama:
 
 ```bash
-git clone https://github.com/ADPer0705/sempropos.git
-cd sempropos
-uv venv && uv sync
-uv run sem install
+uv tool install "sempropos[local-llm]"   # or install llama-server on PATH
+sem model install balanced               # downloads Qwen2.5-Coder-1.5B (~1 GB) & activates it
 ```
-
-`sem install` writes a default configuration, downloads the embedding model into
-the local data directory (so it works offline afterwards), and builds the index.
-If Ollama is running it is selected as the synthesis backend; otherwise `sem`
-still works and falls back to showing matched man pages.
 
 ## 📖 Usage
 
-### The Main Query
-
-Describe what you want to do in natural language. A bare query works, and `ask`
-is available when you want to be explicit:
+### 1. Command Synthesis (`ask` / bare query)
 
 ```bash
-sem "list files in archive.7z"
-sem ask "find all files larger than 100MB"
-sem ask "monitor network traffic on eth0"
+sem "find files larger than 100MB"
+sem -e "delete files older than 30 days"      # includes flag-by-flag breakdown + safety warning
+sem -t tar "extract archive to /tmp"          # scope to a single tool
+sem -n 3 "sync directory over ssh"            # request alternative commands
+sem --porcelain "list open listening ports"   # raw command only (for scripts/widgets)
+sem --json "show disk usage by folder"        # full machine-readable output
 ```
 
-If it succeeds, you'll be handed the correct shell invocation instantly.
-
-### Commands
-
-Management is done with subcommands, not flags:
+### 2. Instant Tool Reference Card (`show` — replaces `man` & `--help`)
 
 ```bash
-sem install      # First-time setup: check requirements, write config, build the index
-sem update       # Refresh the index with newly installed tools (incremental)
-sem check        # Check index freshness and completeness
-sem configure    # Choose synthesis/embedding providers interactively
-sem providers    # List providers and whether they are available
-sem init zsh     # Print shell integration for zsh (also: bash, fish)
-sem version      # Print the version
+sem show du                       # summary, usage, examples, top flags
+sem show du --flags depth         # filter flags by keyword
+sem show git commit               # inspect a specific subcommand
+sem show 7z --examples            # verified usage examples only
+sem show tar --json               # export canonical ToolSpec JSON
 ```
 
-## 🐚 Shell integration (Ctrl+S)
-
-Add one line to your shell rc, then reload it:
+### 3. Instant Tool Discovery (`search` — replaces `apropos`)
 
 ```bash
-# ~/.zshrc  (or ~/.bashrc; use `sem init fish` for fish)
+sem search "disk usage by folder"
+sem search "listening tcp ports"
+sem search "archive" --category archive --limit 15
+```
+
+### 4. Management & Diagnostics
+
+```bash
+sem doctor               # index health, parse coverage %, unindexed PATH bins, daemon, providers
+sem update               # incremental content-hash refresh + prune uninstalled binaries
+sem model list           # list curated GGUF tiers and local runtime status
+sem model install tiny   # download & activate tiny 0.5B GGUF model
+sem daemon status        # inspect warm background daemon (start|stop|restart|status)
+sem config show          # view resolved config.toml (also: config get/set/wizard)
+sem providers            # check availability of synthesis and embedding backends
+sem init zsh             # print Ctrl+S integration + tab completions (zsh, bash, fish)
+```
+
+## 🐚 Shell Integration (`Ctrl+S` + Tab Completion)
+
+Add one line to your shell startup file:
+
+```bash
+# ~/.zshrc
 eval "$(sem init zsh)"
+
+# ~/.bashrc
+eval "$(sem init bash)"
+
+# ~/.config/fish/config.fish
+sem init fish | source
 ```
 
-Now, instead of running `sem` as a separate command, type the natural-language
-task directly on your prompt and press **Ctrl+S**. The line is replaced in place
-with the generated command, ready to review and run:
+Type a plain-English task on your prompt and press **`Ctrl+S`** — the line is replaced in place with the generated command (never auto-executed). Tab completion also completes `sem` subcommands and indexed tool names for `sem show <TAB>`.
 
-```text
-❯ find all files larger than 100MB        # press Ctrl+S
-❯ find . -type f -size +100M
-```
+## 📁 Data & Configuration Layout
 
-Notes:
+- **Config:** `~/.config/sempropos/config.toml` (overridable via `SEMPROPOS_CONFIG_DIR`; automatically reads legacy `intelligence.toml`)
+- **Data:** `~/.local/share/sempropos/` (overridable via `SEMPROPOS_DATA_DIR`)
+  - `index.db` — SQLite v3 + Porter-stemmed FTS5
+  - `tool_embeddings.npy`, `tool_embedding_ids.npy` — `tool_id`-keyed L2-normalized tool-card embeddings
+  - `index.meta`, `last_indexed` — atomic revision and staleness markers
+  - `tldr/` — offline `tldr-pages` snapshot
+  - `models/` — downloaded local GGUF models
+  - `embeddings/` — pinned FastEmbed ONNX model cache
+- **Runtime socket:** `$XDG_RUNTIME_DIR/sempropos/sem.sock` (`0600`, auto-cleaned on idle shutdown)
 
-- The snippet runs `stty -ixon`, which frees `Ctrl+S` from the terminal's
-  XOFF/flow-control behavior. If your terminal still intercepts it, you can
-  re-bind a different key (for example `^G`) by editing the `bindkey`/`bind`
-  line.
-- `Ctrl+R` (history) and `Ctrl+T` (files) are left to [fzf](https://github.com/junegunn/fzf);
-  `sem` only adds `Ctrl+S`.
-- The command is inserted, never executed — you always get the final say.
-
-## 🧠 Backend behavior
-
-Synthesis backend selection order per query:
-
-1. **Ollama** if the daemon is reachable, using the configured model.
-2. **OpenAI-compatible** endpoint if one is configured (`base_url`).
-3. **tier0** fallback: retrieved tools, key flags, and examples, with no LLM.
-
-To keep queries fast, Ollama is called with reasoning/thinking disabled, a
-temperature of `0`, a bounded output length, and a long `keep_alive` so the
-model stays warm between invocations. `sem install` / `update` warm the model
-once so your first real query is not the one paying the load cost.
-
-The default recommendation is a small instruct model (see
-`RECOMMENDED_SYNTHESIS_MODEL`) that stays fast on most consumer hardware while
-remaining capable when grounded by retrieved man-page context. `sem configure`
-lets you opt into a larger model or a remote endpoint.
-
-When your package database changes since the last index, `sem` prints a
-non-blocking warning so you know it's time to run `sem update`.
-
-## 📁 Data Layout
-
-Default location for data assets:
-
-```text
-~/.local/share/sempropos/
-	index.db
-	tool_embeddings.npy
-	tool_embedding_ids.npy
-	index.meta
-	last_indexed
-	embeddings/          # pinned embedding-model cache (kept for offline use)
-```
-
-Flag ranking uses the SQLite FTS5 index, so no flag embedding files are needed.
-
-Override the data location with:
+## 🧪 Development & Testing
 
 ```bash
-export SEMPROPOS_DATA_DIR=/path/to/sempropos-data
+uv sync --group dev
+make check-all          # ruff lint + format check + strict mypy + pytest (unit, integration, 37-query eval)
 ```
 
-## 🤝 Contributing
-
-We welcome contributions from everyone! Whether you're fixing bugs, adding new
-features, or improving documentation, your help makes `sem` better for the
-entire community.
-
-Please read our [CONTRIBUTING.md](CONTRIBUTING.md) for conventions on pull
-requests, code style, and reporting issues.
-
-## 🗺️ Roadmap
-
-Known gaps and planned work live in [ROADMAP.md](ROADMAP.md). It is kept short
-and concrete — a good place to find a first contribution.
-
-## 🧪 Testing & Quality
-
-> Tests are being rebuilt. Until the suite returns, CI installs the package and
-> verifies that every module imports cleanly on Python 3.11–3.13.
-
-The quality policy for this repository remains:
-
-- Running the tool must never require an API key.
-- Provider integration tests are **mocked/offline by default** for deterministic CI runs.
-- Optional live provider smoke checks are local-only and guarded by explicit env vars/markers.
-
-Local checks:
-
-```bash
-make lint     # ruff (when development dependencies are installed)
-make format   # ruff format + autofix
-```
+All default tests run 100% offline with zero API keys required.
 
 ## 📄 License
 
-This project is licensed under the [MIT License](LICENSE).
-
-## 💬 Community & Support
-
-- If you found a bug or have a feature request, please [open an issue](https://github.com/ADPer0705/sempropos/issues).
-- Want to chat or ask a question? Join the discussion on GitHub Discussions.
+MIT License — see [LICENSE](LICENSE).
