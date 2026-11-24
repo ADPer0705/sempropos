@@ -9,11 +9,13 @@ verified:
 sources:
   - id: openwiki-source-401c3a8b8dfa9b92b6d17737
     resource: repo://src/sempropos/cli.py
-  - id: openwiki-source-dde87ad38c67b724ad33ca8c
-    resource: repo://src/sempropos/intelligence/providers/_tier0.py
+  - id: openwiki-source-c8919dac9c46b272e6ad65f8
+    resource: repo://src/sempropos/intelligence/prompt.py
+  - id: openwiki-source-ff870d0a5a99aff8f66b5e2b
+    resource: repo://src/sempropos/service.py
   - id: openwiki-source-8f55faa7a495acc24641ff9a
     resource: repo://src/sempropos/shell.py
-generated: { by: "opencode", at: "2026-11-21T06:12:23.249Z" }
+generated: { by: "antigravity", at: "2026-11-23T21:48:04.805Z" }
 ---
 
 # CLI Surface and Query Dispatch

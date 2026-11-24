@@ -7,15 +7,19 @@ verified:
   - by: openwiki/0.9.0
     at: 2026-11-23T21:48:04.805Z
 sources:
-  - id: openwiki-source-72fe826953aaa47d17a811e4
-    resource: repo://ROADMAP.md
+  - id: openwiki-source-ea5077150cf30546a7983ff8
+    resource: repo://src/sempropos/index/builder.py
+  - id: openwiki-source-1d5b97402c976b1ac878dc58
+    resource: repo://src/sempropos/index/repository.py
   - id: openwiki-source-257365c350a958492518fcd4
     resource: repo://src/sempropos/index/schema.py
+  - id: openwiki-source-92556b1c8e117dbc03b9c4b7
+    resource: repo://src/sempropos/model/spec.py
   - id: openwiki-source-2f4a1d1392b204104c5fce86
     resource: repo://src/sempropos/retrieval/bm25.py
   - id: openwiki-source-0032f2d73652a4f2b635b6f5
     resource: repo://src/sempropos/retrieval/flag_retrieval.py
-generated: { by: "opencode", at: "2026-11-21T06:12:23.249Z" }
+generated: { by: "antigravity", at: "2026-11-23T21:48:04.805Z" }
 ---
 
 # Index Database Schema

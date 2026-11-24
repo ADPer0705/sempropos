@@ -23,7 +23,11 @@ sources:
     resource: repo://README.md
   - id: openwiki-source-72fe826953aaa47d17a811e4
     resource: repo://ROADMAP.md
-generated: { by: "opencode", at: "2026-11-21T06:12:23.249Z" }
+  - id: openwiki-source-f0a6e7dc03522b2682f88655
+    resource: repo://tests/conftest.py
+  - id: openwiki-source-51c47c23366022417becd011
+    resource: repo://tests/eval/test_retrieval_benchmark.py
+generated: { by: "antigravity", at: "2026-11-23T21:48:04.805Z" }
 ---
 
 # Development and Quality

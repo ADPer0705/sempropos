@@ -11,11 +11,19 @@ sources:
     resource: repo://src/sempropos/config.py
   - id: openwiki-source-ea5077150cf30546a7983ff8
     resource: repo://src/sempropos/index/builder.py
-  - id: openwiki-source-35f3c8803b8fa475b2d74e94
-    resource: repo://src/sempropos/index/parser.py
+  - id: openwiki-source-1d5b97402c976b1ac878dc58
+    resource: repo://src/sempropos/index/repository.py
+  - id: openwiki-source-a361c592f79b6179bb455356
+    resource: repo://src/sempropos/sources/discovery.py
+  - id: openwiki-source-a79db83db842c71e1467d612
+    resource: repo://src/sempropos/sources/help_probe.py
   - id: openwiki-source-de7881d4d3ee12f130f2e109
     resource: repo://src/sempropos/sources/man.py
-generated: { by: "opencode", at: "2026-11-21T06:12:23.249Z" }
+  - id: openwiki-source-b06dc1942adac6b9017f9414
+    resource: repo://src/sempropos/sources/merger.py
+  - id: openwiki-source-821cd05eb0f69fb2f1681ee4
+    resource: repo://src/sempropos/sources/roff_parser.py
+generated: { by: "antigravity", at: "2026-11-23T21:48:04.805Z" }
 ---
 
 # Indexing Pipeline
@@ -73,7 +81,7 @@ Man extraction runs in a bounded `ThreadPoolExecutor` of `min(cpu_count, 8)` wor
 
 ### `--help` probing
 
-`_probe_missing_tools` probes only binaries that are absent from man documentation or whose man page produced neither flags nor subcommands. `is_safe_to_probe` rejects denylisted and setuid/setgid binaries; `run_help_probe` runs the binary with `--help` in a sanitized headless environment, a detached process group, and the configured timeout (default 1.5 s). Probes also use the bounded worker window.
+`_probe_missing_tools` probes only binaries that are absent from man documentation or whose man page produced neither flags nor subcommands. `is_safe_to_probe` rejects denylisted and setuid/setgid binaries; `run_help_probe` runs the binary with `--help` inside an ephemeral `TemporaryDirectory` (`cwd`, `HOME`, and `TMPDIR`) with a sanitized headless environment, a detached process group, and the configured timeout (default 1.5 s). Probes also use the bounded worker window.
 
 ## Stage 3 — Parsing and merging
 

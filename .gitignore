@@ -11,4 +11,4 @@ wheels/
 .coverage
 
 # IDE and editor files
-.vscode/
+.vscode/site/

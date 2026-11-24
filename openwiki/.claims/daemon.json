@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:c57c50ead9db10d39ca060ceda5f4005c6cb74d011d6397a09447d2f7573e3a1",
+  "claims": [
+    {
+      "id": "claim_2bb8e4c259a44fb884a31306ba6bf3a3",
+      "statement": "SemService encapsulates search, show, ask, list_names, and doctor without Typer or Rich dependencies, caching a read-only SQLite connection and automatically reloading both the DB handle and mmap embeddings when index.meta changes.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/service.py",
+          "version": "repo-file-v1:sha256:60b2fe26cee56876d643eac7805245a7c8ed4d5efb2910de3e01a8060868a3eb"
+        }
+      ]
+    },
+    {
+      "id": "claim_b49099a415c644d7a10a39517d605a11",
+      "statement": "SemDaemonServer binds a user-private 0600 Unix domain socket guarded by a non-blocking fcntl.flock on sem.lock, serves newline-delimited JSON-RPC requests, and automatically shuts down after daemon.idle_timeout_seconds of inactivity.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/daemon/server.py",
+          "version": "repo-file-v1:sha256:07dfb91f578867e3237134d9b4a13c3d743b0bbc01b01452a63743669daa903d"
+        }
+      ]
+    },
+    {
+      "id": "claim_af47331227ae4949bfa56db651659a65",
+      "statement": "DaemonClient and protocol use only Python standard-library modules with 2 MiB max newline-delimited JSON frames, enabling try_fast_porcelain_ask to serve warm-daemon Ctrl+S queries without importing Typer, Rich, or ML runtimes.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/daemon/client.py",
+          "version": "repo-file-v1:sha256:d519e62f35c9a7777d65baebea7b0dbfc12cd9befb6bc09439b5a7335731f129"
+        },
+        {
+          "resource": "repo://src/sempropos/daemon/protocol.py",
+          "version": "repo-file-v1:sha256:fae9c059875218f745923581b17f131ace77a7463cb2ff71681519fdf007c6ca"
+        }
+      ]
+    },
+    {
+      "id": "claim_42356bd125784d3598f93ac82a39e970",
+      "statement": "When auto_start is enabled and no daemon is listening, DaemonClient spawns `python -m sempropos.daemon` in a detached session and polls ping readiness for up to three seconds before retrying the request.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/daemon/__main__.py",
+          "version": "repo-file-v1:sha256:ac13b9a0e3ec45d7d49e01b1387e41eed2ca9028919be7e8d09b3f30a34224d6"
+        },
+        {
+          "resource": "repo://src/sempropos/daemon/client.py",
+          "version": "repo-file-v1:sha256:d519e62f35c9a7777d65baebea7b0dbfc12cd9befb6bc09439b5a7335731f129"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.9.0",
+    "at": "2026-11-23T21:48:04.805Z"
+  }
+}

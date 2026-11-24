@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
-  "pageVersion": "sha256:57b8987558c413f231604e696afbc761b1de37a6d87e3cd3a998bf876f442f43",
+  "pageVersion": "sha256:71e3adc80a06388ffba28263c73d73f336f260d1575b267a91cc96d46bb803c8",
   "claims": [
     {
       "id": "claim_be6ad655ec4a43e0a09e58ad37ae756c",
-      "statement": "The intelligence layer defines provider-neutral StructuredPrompt, SynthesisResult, SynthesisOptions, and an exception hierarchy for unavailable, execution, and configuration failures.",
+      "statement": "The intelligence layer defines provider-neutral StructuredPrompt (with optional json_schema), SynthesisResult (with tool, explanation, and alternatives), SynthesisOptions (including local GGUF and structured_output knobs), and an exception hierarchy for unavailable, execution, and configuration failures.",
       "evidence": [
         {
           "resource": "repo://src/sempropos/intelligence/contracts.py",
-          "version": "repo-file-v1:sha256:fa50cc4155235dcd2540801fddc5447e92f022937adc18faab30a766b7061904"
+          "version": "repo-file-v1:sha256:25b2047b75769d288c798d86824ebd418f98075551a165f47f847ba7c97dd5c8"
         }
       ]
     },
@@ -18,71 +18,71 @@
       "evidence": [
         {
           "resource": "repo://src/sempropos/intelligence/facade.py",
-          "version": "repo-file-v1:sha256:7909d16005bedbfe5fa079b03f587d0124cc37c32930130d78f152ccbe53da5e"
+          "version": "repo-file-v1:sha256:09f605241ec79f07c550f3cc18089572a5909b95941335a85c0484f97ed9d4c8"
         }
       ]
     },
     {
       "id": "claim_8a1f1063c12349a1b208611c2929bea6",
-      "statement": "`synthesize` honors a backend override while still using the configured role options, validates the provider, and dispatches to ollama, openai_compatible, or tier0.",
+      "statement": "`synthesize` honors a backend override while preserving configured SynthesisConfig options, validates the provider, and lazy-loads and dispatches to local_gguf, ollama, openai_compatible, or tier0.",
       "evidence": [
         {
           "resource": "repo://src/sempropos/intelligence/facade.py",
-          "version": "repo-file-v1:sha256:7909d16005bedbfe5fa079b03f587d0124cc37c32930130d78f152ccbe53da5e"
+          "version": "repo-file-v1:sha256:09f605241ec79f07c550f3cc18089572a5909b95941335a85c0484f97ed9d4c8"
         }
       ]
     },
     {
       "id": "claim_6e0401d1e8fa445d825111a287c1116d",
-      "statement": "Prompt budgeting targets 600 words, starting with up to 5 tools, 6 flags per tool, and 4 examples per tool, and progressively removes examples, flags, then tools.",
+      "statement": "Prompt budgeting targets MAX_PROMPT_WORDS = 680, starting with up to 5 tools, 4 subcommands, 8 flags, and 4 examples per tool, and progressively reduces examples, flags, subcommands, then tools.",
       "evidence": [
         {
           "resource": "repo://src/sempropos/intelligence/prompt.py",
-          "version": "repo-file-v1:sha256:c5edf52908fa95fe7b940d218c3a9c1c032d622ab251d7c0ce40b618397250ac"
+          "version": "repo-file-v1:sha256:309a3dd0dcefceab19edd749e2825a43cf23a31787580a157416ca167849e3b9"
         }
       ]
     },
     {
       "id": "claim_29c8cc4dad7d46ae86233d71f92843b1",
-      "statement": "The system instruction forbids inventing tools outside the retrieved context, requires one runnable command, and defines NONE as the no-fit answer.",
+      "statement": "The system instruction restricts synthesis to retrieved ToolSpec context, forbids usage/synopsis echoes, requires a JSON object matching COMMAND_JSON_SCHEMA, and uses none=true when no listed tool fits.",
       "evidence": [
         {
           "resource": "repo://src/sempropos/intelligence/prompt.py",
-          "version": "repo-file-v1:sha256:c5edf52908fa95fe7b940d218c3a9c1c032d622ab251d7c0ce40b618397250ac"
+          "version": "repo-file-v1:sha256:309a3dd0dcefceab19edd749e2825a43cf23a31787580a157416ca167849e3b9"
         }
       ]
     },
     {
       "id": "claim_19c730c7b21d48239766e7adc018b8ec",
-      "statement": "`extract_command` strips fences and prompts, rejects prose, usage echoes, overlong output, and NONE, and the CLI may perform one repair retry.",
+      "statement": "`parse_synthesis_output` prefers structured JSON, strips language-tagged fences and shell prompts, rejects prose and usage echoes, records explicit none answers, and `SemService._repair_once` performs one repair retry when no command is extracted unless none was explicit.",
       "evidence": [
         {
-          "resource": "repo://src/sempropos/cli.py",
-          "version": "repo-file-v1:sha256:09c9250d1f8149286b88526abbb7dcd7ead14dc69842e8ccba8ea96324dba8ff"
+          "resource": "repo://src/sempropos/intelligence/prompt.py",
+          "version": "repo-file-v1:sha256:309a3dd0dcefceab19edd749e2825a43cf23a31787580a157416ca167849e3b9"
         },
         {
-          "resource": "repo://src/sempropos/intelligence/prompt.py",
-          "version": "repo-file-v1:sha256:c5edf52908fa95fe7b940d218c3a9c1c032d622ab251d7c0ce40b618397250ac"
+          "resource": "repo://src/sempropos/service.py",
+          "version": "repo-file-v1:sha256:60b2fe26cee56876d643eac7805245a7c8ed4d5efb2910de3e01a8060868a3eb"
         }
       ]
     },
     {
       "id": "claim_2449cb73102b4673aed960660756f35f",
-      "statement": "Ollama availability is checked against 127.0.0.1:11434/api/tags, and synthesis passes think, temperature, num_predict, stop, and keep_alive, retrying without think when a model rejects it.",
+      "statement": "The Ollama provider uses stdlib urllib.request (no ollama SDK or pip), resolves base_url or OLLAMA_HOST, passes format=COMMAND_JSON_SCHEMA and think to /api/chat (retrying without them if rejected), and calls /api/embed for embeddings.",
       "evidence": [
         {
           "resource": "repo://src/sempropos/intelligence/providers/_ollama.py",
-          "version": "repo-file-v1:sha256:6d4c0c2763e451eed63811f4eec35a53f3a15440c10070eb6d407b10cca2247f"
+          "version": "repo-file-v1:sha256:c55cc05b70b64f9f147c9131b5e8502120acf209010e6d0234a6e1a1b8fe1e73"
         }
       ]
     },
     {
       "id": "claim_487092b937d0427eb8edb909f2b18a99",
-      "statement": "The OpenAI-compatible provider resolves a base URL and API key from config or environment, posts to /chat/completions, and reports HTTP and connection failures separately.",
+      "statement": "The OpenAI-compatible provider resolves a base URL and bearer key from config, keyring, or environment, posts to /chat/completions with json_schema response_format (retrying without response_format on 400/422), and maps HTTP and connection failures separately.",
       "evidence": [
         {
           "resource": "repo://src/sempropos/intelligence/providers/_openai_compatible.py",
-          "version": "repo-file-v1:sha256:bbc70cff09b73d60514409b487852025f24d28b281cbd200ed87c119618ee29d"
+          "version": "repo-file-v1:sha256:4a8b2ca11fff47d1311b65c59e8a1d629f862e38419ca48016c1a3efc8e12acd"
         }
       ]
     },
@@ -92,27 +92,47 @@
       "evidence": [
         {
           "resource": "repo://src/sempropos/intelligence/providers/_fastembed.py",
-          "version": "repo-file-v1:sha256:b9a5129766c231f71613addf4d1033220d00360d329cb04d8ba8d6f323879bd8"
+          "version": "repo-file-v1:sha256:d0f258b23ac6d2d3cd758d3a3ba354ce7b4ae993d23bdad788b100b114aa162e"
         }
       ]
     },
     {
       "id": "claim_ccbba40bc85c4b2aa02e34d9724c4836",
-      "statement": "tier0 is always available but returns an empty placeholder result that the CLI treats as no synthesis backend.",
+      "statement": "tier0 is always available offline and scores retrieved ToolSpec examples by query token overlap, returning a verified command when overlap is at least 0.55 and otherwise yielding cleanly to ToolSpec card fallback.",
       "evidence": [
         {
-          "resource": "repo://src/sempropos/cli.py",
-          "version": "repo-file-v1:sha256:09c9250d1f8149286b88526abbb7dcd7ead14dc69842e8ccba8ea96324dba8ff"
+          "resource": "repo://src/sempropos/intelligence/providers/_tier0.py",
+          "version": "repo-file-v1:sha256:a11dd8d5a953405cb270be76f461002f2b12f661db9af4f48b250d07354c5ae5"
+        }
+      ]
+    },
+    {
+      "id": "claim_8687332b0e3b4402b8aee350369d8638",
+      "statement": "The local_gguf provider manages curated tiny, balanced, and quality Qwen2.5-Coder GGUF models and executes JSON-schema constrained synthesis via in-process llama-cpp-python or a managed ephemeral-port llama-server child process.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/intelligence/models.py",
+          "version": "repo-file-v1:sha256:b86ac4fa6382b78affdf55c83ee93776c5dba07f61722ee456b97c5a2338f799"
         },
         {
-          "resource": "repo://src/sempropos/intelligence/providers/_tier0.py",
-          "version": "repo-file-v1:sha256:2bd61685434c69879e37ac5073dd339cc39143b85bf09d0537a221279c5cd9c1"
+          "resource": "repo://src/sempropos/intelligence/providers/_local_gguf.py",
+          "version": "repo-file-v1:sha256:b7adf0446099d4ccbcabbed3f2b33b0186a985dd4c4ced8d1c132c07bcec2a4c"
+        }
+      ]
+    },
+    {
+      "id": "claim_1f1c7924c52c4daa82fea89613244864",
+      "statement": "`verify_command` grounds the primary executable against PATH and builtins (skipping env assignments and wrapper flags), cross-checks expanded short/long flags against ToolSpec, and classifies commands as safe, caution, or destructive.",
+      "evidence": [
+        {
+          "resource": "repo://src/sempropos/intelligence/safety.py",
+          "version": "repo-file-v1:sha256:3d48fa74fc2222685f016d4950c57439ec62a7e58136ed748bb6108145a416f1"
         }
       ]
     }
   ],
   "verification": {
     "by": "openwiki/0.9.0",
-    "at": "2026-11-21T06:12:23.249Z"
+    "at": "2026-11-23T21:48:04.805Z"
   }
 }

@@ -9,8 +9,6 @@ verified:
 sources:
   - id: openwiki-source-72fe826953aaa47d17a811e4
     resource: repo://ROADMAP.md
-  - id: openwiki-source-401c3a8b8dfa9b92b6d17737
-    resource: repo://src/sempropos/cli.py
   - id: openwiki-source-2f4a1d1392b204104c5fce86
     resource: repo://src/sempropos/retrieval/bm25.py
   - id: openwiki-source-330d3b01cba3dd95d77d0949
@@ -19,9 +17,13 @@ sources:
     resource: repo://src/sempropos/retrieval/flag_retrieval.py
   - id: openwiki-source-f1189b24619594b1a36787c8
     resource: repo://src/sempropos/retrieval/fusion.py
+  - id: openwiki-source-7c67f95f32cdcea8bd004f44
+    resource: repo://src/sempropos/retrieval/query.py
   - id: openwiki-source-3b165e2454412725ff556c11
     resource: repo://src/sempropos/retrieval/semantic.py
-generated: { by: "opencode", at: "2026-11-21T06:12:23.249Z" }
+  - id: openwiki-source-ff870d0a5a99aff8f66b5e2b
+    resource: repo://src/sempropos/service.py
+generated: { by: "antigravity", at: "2026-11-23T21:48:04.805Z" }
 ---
 
 # Retrieval and Ranking

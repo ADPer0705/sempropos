@@ -9,17 +9,21 @@ verified:
 sources:
   - id: openwiki-source-219b42e1aa58452b690c638d
     resource: repo://src/sempropos/config.py
+  - id: openwiki-source-57fbffffe0d84e81ad541cec
+    resource: repo://src/sempropos/daemon/client.py
   - id: openwiki-source-ea5077150cf30546a7983ff8
     resource: repo://src/sempropos/index/builder.py
   - id: openwiki-source-e6e2fa64cad475f151db6633
     resource: repo://src/sempropos/intelligence/contracts.py
   - id: openwiki-source-96f0681bdb464aa6414af509
     resource: repo://src/sempropos/intelligence/facade.py
+  - id: openwiki-source-a94edd5f1a01c22cc4966cf2
+    resource: repo://src/sempropos/intelligence/models.py
   - id: openwiki-source-6c668f3544f6961d7a48ad3c
     resource: repo://src/sempropos/intelligence/providers/_openai_compatible.py
   - id: openwiki-source-02bc0bb1b5d2e945c282f049
     resource: repo://src/sempropos/utils.py
-generated: { by: "opencode", at: "2026-11-21T06:12:23.249Z" }
+generated: { by: "antigravity", at: "2026-11-23T21:48:04.805Z" }
 ---
 
 # Configuration and Paths

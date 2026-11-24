@@ -12,12 +12,16 @@ sources:
     resource: repo://src/sempropos/cli.py
   - id: openwiki-source-219b42e1aa58452b690c638d
     resource: repo://src/sempropos/config.py
+  - id: openwiki-source-57fbffffe0d84e81ad541cec
+    resource: repo://src/sempropos/daemon/client.py
   - id: openwiki-source-ea5077150cf30546a7983ff8
     resource: repo://src/sempropos/index/builder.py
   - id: openwiki-source-c8919dac9c46b272e6ad65f8
     resource: repo://src/sempropos/intelligence/prompt.py
   - id: openwiki-source-0069c226d8bdc9dcf3d0ab51
     resource: repo://src/sempropos/intelligence/providers/_fastembed.py
+  - id: openwiki-source-dde87ad38c67b724ad33ca8c
+    resource: repo://src/sempropos/intelligence/providers/_tier0.py
   - id: openwiki-source-2f4a1d1392b204104c5fce86
     resource: repo://src/sempropos/retrieval/bm25.py
   - id: openwiki-source-0032f2d73652a4f2b635b6f5
@@ -26,7 +30,9 @@ sources:
     resource: repo://src/sempropos/retrieval/fusion.py
   - id: openwiki-source-3b165e2454412725ff556c11
     resource: repo://src/sempropos/retrieval/semantic.py
-generated: { by: "opencode", at: "2026-11-21T06:12:23.249Z" }
+  - id: openwiki-source-ff870d0a5a99aff8f66b5e2b
+    resource: repo://src/sempropos/service.py
+generated: { by: "antigravity", at: "2026-11-23T21:48:04.805Z" }
 ---
 
 # Architecture Overview

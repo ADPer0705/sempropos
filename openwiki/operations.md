@@ -11,11 +11,19 @@ sources:
     resource: repo://src/sempropos/cli.py
   - id: openwiki-source-219b42e1aa58452b690c638d
     resource: repo://src/sempropos/config.py
+  - id: openwiki-source-57fbffffe0d84e81ad541cec
+    resource: repo://src/sempropos/daemon/client.py
+  - id: openwiki-source-ea5077150cf30546a7983ff8
+    resource: repo://src/sempropos/index/builder.py
   - id: openwiki-source-3ff6264169f17b0fd3181675
     resource: repo://src/sempropos/index/staleness.py
+  - id: openwiki-source-a94edd5f1a01c22cc4966cf2
+    resource: repo://src/sempropos/intelligence/models.py
   - id: openwiki-source-0069c226d8bdc9dcf3d0ab51
     resource: repo://src/sempropos/intelligence/providers/_fastembed.py
-generated: { by: "opencode", at: "2026-11-21T06:12:23.249Z" }
+  - id: openwiki-source-ff870d0a5a99aff8f66b5e2b
+    resource: repo://src/sempropos/service.py
+generated: { by: "antigravity", at: "2026-11-23T21:48:04.805Z" }
 ---
 
 # Operations and Troubleshooting

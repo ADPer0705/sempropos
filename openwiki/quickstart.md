@@ -1,11 +1,11 @@
 ---
 type: guide
 title: Quickstart
-description: Install sem, run first-time setup, issue a natural-language query, enable Ctrl+S shell integration, and find the right page for deeper detail.
-tags: [quickstart, installation, usage, offline]
+description: Install sem v1.0.0, build the multi-source ToolSpec index, use ask/show/search modes, optionally enable the built-in local GGUF model, and set up Ctrl+S shell integration.
+tags: [quickstart, installation, usage, offline, tri-modal]
 verified:
   - by: openwiki/0.9.0
-    at: 2026-11-21T06:12:23.249Z
+    at: 2026-11-23T21:48:04.805Z
 sources:
   - id: openwiki-source-05ccef8d4cf1698187f20464
     resource: repo://pyproject.toml
@@ -19,20 +19,30 @@ sources:
     resource: repo://src/sempropos/intelligence/providers/_openai_compatible.py
   - id: openwiki-source-f1189b24619594b1a36787c8
     resource: repo://src/sempropos/retrieval/fusion.py
+  - id: openwiki-source-ff870d0a5a99aff8f66b5e2b
+    resource: repo://src/sempropos/service.py
   - id: openwiki-source-8f55faa7a495acc24641ff9a
     resource: repo://src/sempropos/shell.py
-generated: { by: "opencode", at: "2026-11-21T06:12:23.249Z" }
+generated: { by: "antigravity", at: "2026-11-23T21:48:04.805Z" }
 ---
 
 # Quickstart
 
-`sem` (distributed as the `sempropos` package) is a local, offline-first CLI that turns a natural-language task into a shell command. It retrieves context from your system's man pages and synthesizes a command with a local model. No API key, telemetry, or cloud backend is required.
+`sem` (distributed as the `sempropos` package) is an **instant, offline-first CLI replacement for `apropos`, `--help`, and `man`**. It indexes every command installed on your machine from local `man(7)`/`mdoc(7)` pages, `tldr-pages`, Fish/Zsh completions, and safe `--help` probes into a canonical structured `ToolSpec` index, giving you three fast modes:
+
+- **Synthesize (`sem "..."` / `ask` / `Ctrl+S`):** Turn plain English into a verified, safety-checked shell command.
+- **Inspect (`sem show <tool> [subcommand]`):** Instant 0ms-LLM structured reference card replacing `man` and `--help`.
+- **Discover (`sem search <query>`):** Instant 0ms-LLM ranked tool search replacing `apropos`.
+
+No API key, telemetry, or cloud backend is required.
 
 ## Requirements
 
-- Linux/POSIX with `man` and a SQLite build that includes FTS5.
-- Python 3.11 or newer.
-- Optional: [Ollama](https://ollama.com/) for synthesis. Without it, `sem` still retrieves and displays relevant man pages.
+- Linux/POSIX with Python 3.11 or newer and SQLite FTS5 (`porter unicode61` tokenizer).
+- Optional synthesis LLM:
+  - **Built-in local GGUF (`local_gguf`):** Install `sempropos[local-llm]` (or `llama-server`) and run `sem model install balanced` — no Ollama required.
+  - **Ollama / OpenAI-compatible:** Pure-HTTP support out of the box.
+  - **Tier-0 fallback:** Works completely without an LLM by matching verified `tldr`/man examples or displaying structured `ToolSpec` cards.
 
 ## Install
 
@@ -43,39 +53,56 @@ uv tool install sempropos
 sem install
 ```
 
+### With built-in local GGUF synthesis
+
+```bash
+uv tool install "sempropos[local-llm]"
+sem install --model balanced    # downloads Qwen2.5-Coder-1.5B (~1 GB) & builds index
+```
+
 ### From source
 
 ```bash
 git clone https://github.com/ADPer0705/sempropos.git
 cd sempropos
-uv venv && uv sync
+uv sync --group dev
 uv run sem install
 ```
 
-`sem install` checks for FTS5 and `man`, writes a default `intelligence.toml`, downloads the embedding model into the application data directory, builds the man-page index, and warms the synthesis model when Ollama is reachable.
+`sem install` verifies SQLite FTS5 with Porter stemming, writes `config.toml`, optionally syncs the English `tldr-pages` snapshot and local GGUF model, builds the SQLite v3 index + tool-card embeddings, and warms the configured synthesis backend.
 
-## First query
+## Tri-Modal Usage
 
-Describe the task in plain language:
+### 1. Command Synthesis (`sem "..."` / `ask`)
 
 ```bash
 sem "list files in archive.7z"
-sem ask "find all files larger than 100MB"
-sem ask "monitor network traffic on eth0"
+sem -e "delete files older than 30 days"      # flag-by-flag breakdown + safety warning
+sem -t tar "extract archive to /tmp"          # scope to a single tool
+sem -n 3 "sync directory over ssh"            # request alternative commands
+sem --porcelain "find markdown files"         # raw command only on stdout
+sem --json "show disk usage by folder"        # full JSON response
 ```
 
-A bare query is automatically routed to the `ask` command. On success you get a generated shell command; the command is shown for review and is never executed automatically.
+Bare natural-language queries (including multi-word queries starting with a verb like `sem check open ports`) route to `ask`. Generated commands are verified on `$PATH` and classified (`safe`, `caution`, `destructive`) — and are **never executed automatically**.
 
-Useful query options:
+### 2. Instant Tool Reference (`show` — replaces `man` & `--help`)
 
 ```bash
-sem --backend ollama "show disk usage by folder"
-sem --porcelain "find markdown files"    # command only on stdout
+sem show du                   # summary, synopsis, examples, top flags
+sem show du --flags depth     # filter flags by keyword
+sem show git commit           # inspect a specific subcommand
+sem show 7z --examples        # verified usage examples only
 ```
 
-`--porcelain` is intended for scripts and shell widgets: the command is the only stdout output, diagnostics go to stderr, and failures exit non-zero.
+### 3. Instant Tool Discovery (`search` — replaces `apropos`)
 
-## Shell integration (Ctrl+S)
+```bash
+sem search "open listening ports"
+sem search "archive" --category archive --limit 15
+```
+
+## Shell Integration (`Ctrl+S` + Tab Completion)
 
 Add one line to your shell startup file:
 
@@ -87,65 +114,53 @@ eval "$(sem init zsh)"     # or: eval "$(sem init bash)"
 sem init fish | source
 ```
 
-Now type a natural-language task at the prompt and press **Ctrl+S**:
+Type a plain-English task at the prompt and press **Ctrl+S**:
 
 ```text
 ❯ find all files larger than 100MB        # press Ctrl+S
 ❯ find . -type f -size +100M
 ```
 
-The line is replaced in place and left for you to review. The snippet runs `stty -ixon` so the terminal does not swallow Ctrl+S. See [Shell Integration](shell-integration.md) for binding details and caveats.
+The widget calls `sem --porcelain -- "$BUFFER"`, surfaces errors cleanly, and registers tab completions for `sem` subcommands and `sem show <TAB>`. See [Shell Integration & Completions](shell-integration.md).
 
-## Management commands
+## Management Commands
 
 ```bash
-sem install      # first-time setup: check requirements, write config, build index
-sem update       # incrementally add newly installed tools
-sem check        # report index completeness and staleness
-sem configure    # choose synthesis and embedding providers interactively
-sem providers    # list providers and whether they are available
-sem init zsh     # print shell integration (also bash, fish)
+sem install      # first-time setup: check FTS5, write config.toml, build v3 index
+sem update       # incremental hash-checked refresh + prune uninstalled binaries
+sem doctor       # index health, parse coverage %, unindexed PATH bins, daemon, providers
+sem model list   # list curated local GGUF models (install / use / remove)
+sem daemon status # inspect warm Unix-socket daemon (start / stop / restart / status)
+sem config show  # inspect config.toml (also: config get / set / wizard)
+sem providers    # list synthesis and embedding providers and availability
+sem init zsh     # print shell integration (zsh, bash, fish)
 sem version      # print the version
 ```
 
-Details and failure remedies are in [Operations and Troubleshooting](operations.md).
+## Data & Runtime Layout
 
-## How it works
+Override paths with `SEMPROPOS_DATA_DIR`, `SEMPROPOS_CONFIG_DIR`, or `SEMPROPOS_RUNTIME_DIR`.
 
-1. The query is tokenized, singularized, and expanded with synonyms.
-2. BM25 over man-page descriptions provides the primary ranking, with a boost for exact tool-name matches.
-3. Embedding cosine similarity adds recall; it can break exact lexical ties but cannot outrank a confident lexical hit.
-4. The top tools, their relevant flags, and examples are assembled into a budgeted prompt.
-5. Ollama or an OpenAI-compatible endpoint synthesizes one command. Without a usable backend, the retrieved man pages are shown directly.
-
-The full pipeline is described in [Architecture Overview](architecture.md) and [Retrieval and Ranking](retrieval.md).
-
-## Data location
-
-By default, runtime assets live under the platform user data directory (`platformdirs` for `sempropos`), with configuration under the user config directory. Override them with:
-
-```bash
-export SEMPROPOS_DATA_DIR=/path/to/sempropos-data
-export SEMPROPOS_CONFIG_DIR=/path/to/sempropos-config
-```
-
-The data directory contains `index.db`, `tool_embeddings.npy`, `tool_embedding_ids.npy`, `index.meta`, `last_indexed`, and the cached embedding model under `embeddings/`. See [Configuration and Paths](configuration.md).
+- **Config:** `~/.config/sempropos/config.toml` (auto-reads legacy `intelligence.toml` if present).
+- **Data:** `~/.local/share/sempropos/` (`index.db`, `tool_embeddings.npy`, `tool_embedding_ids.npy`, `index.meta`, `last_indexed`, `tldr/`, `models/`, `embeddings/`, `bin/`).
+- **Runtime:** `$XDG_RUNTIME_DIR/sempropos/sem.sock` (`0600` private Unix socket for the warm daemon).
 
 ## Where to go next
 
 | If you want to… | Read |
 | --- | --- |
-| Understand the whole request flow | [Architecture Overview](architecture.md) |
-| Learn the commands and exit codes | [CLI Surface and Query Dispatch](cli.md) |
-| Configure providers, paths, and keys | [Configuration and Paths](configuration.md) |
-| Understand index building and parsing | [Indexing Pipeline](indexing.md) |
-| Inspect the SQLite/FTS5 layout | [Index Database Schema](index-schema.md) |
-| Understand ranking and fusion | [Retrieval and Ranking](retrieval.md) |
-| Work on prompts or add a provider | [Prompting and Synthesis Providers](synthesis.md) |
-| Set up Ctrl+S | [Shell Integration](shell-integration.md) |
-| Fix an index or provider problem | [Operations and Troubleshooting](operations.md) |
-| Contribute or run CI checks | [Development and Quality](development.md) |
+| Understand the whole request flow | [System Architecture](architecture.md) |
+| Learn all commands, routing, and exit codes | [CLI Reference & Command Routing](cli.md) |
+| Configure providers, daemon, and indexing | [Configuration & Metadata](configuration.md) |
+| Understand the multi-source ingestion pipeline | [Multi-Source Ingestion & Indexing Pipeline](indexing.md) |
+| Inspect the ToolSpec IR & SQLite v3 schema | [ToolSpec IR & SQLite v3 Schema](index-schema.md) |
+| Understand query analysis, BM25, and fusion | [Retrieval & Intent Ranking](retrieval.md) |
+| Work on prompts, local GGUF, providers, or safety | [Command Synthesis, Providers & Safety Verification](synthesis.md) |
+| Inspect the warm daemon & `SemService` | [Warm Daemon & Service Layer](daemon.md) |
+| Set up `Ctrl+S` and tab completions | [Shell Integration & Completions](shell-integration.md) |
+| Troubleshoot or manage models and daemon | [Operations, Diagnostics & Model Lifecycle](operations.md) |
+| Run tests, 37-query evals, or CI checks | [Development, Testing & Release Pipeline](development.md) |
 
 ## Privacy
 
-All retrieval and embedding run locally. The only network activity is the optional first-time embedding-model download and any configured remote synthesis endpoint. Ollama and FastEmbed operate on your machine.
+All retrieval, parsing, and embedding run locally on your machine. Network activity is limited to optional `tldr-pages` / model downloads (`--offline` disables all downloads) and any remote synthesis endpoint you explicitly configure.
