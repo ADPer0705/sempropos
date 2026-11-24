@@ -8,13 +8,19 @@ sanitized headless environment, detached process group, and hard timeouts.
 
 from __future__ import annotations
 
+import contextlib
+import functools
 import hashlib
 import os
 import re
+import shlex
+import shutil
 import signal
 import stat
 import subprocess
+import sys
 import tempfile
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -142,6 +148,23 @@ _UNSAFE_EXACT = frozenset(
         "ssh-agent",
         "dbus-daemon",
         "dbus-launch",
+        "gparted",
+        "synaptic",
+        "liveinst",
+        "anaconda",
+        "calamares",
+        "ubiquity",
+        "kdesu",
+        "kdesudo",
+        "gksu",
+        "gksudo",
+        "lxqt-sudo",
+        "beesu",
+        "yad",
+        "xmessage",
+        "gxmessage",
+        "ksshaskpass",
+        "lxpolkit",
     }
 )
 
@@ -164,12 +187,40 @@ _UNSAFE_PREFIXES = (
     "systemd-",
     "dbus-",
     "pinentry-",
+    "polkit-",
+    "hyprpolkit",
+    "hyprland-",
+    "akonadi",
+    "kwallet",
+    "drkonqi",
     "x11",
     "xorg",
     "nvidia-",
     "vulkan",
     "mesa-",
     "glx",
+)
+
+_UNSAFE_SUFFIXES = (
+    "-pkexec",
+    "_pkexec",
+    "-askpass",
+    "_askpass",
+    "askpass",
+    "-gui",
+    "_gui",
+    "-gtk",
+    "-gtk3",
+    "-gtk4",
+    "-dialog",
+    "-dialog6",
+    "-applet",
+    "-installer",
+)
+
+_SCRIPT_UNSAFE_CALL_RE = re.compile(
+    r"\b(?:pkexec|gksu|gksudo|kdesu|kdesudo|lxqt-sudo|beesu|"
+    r"zenity|kdialog|yad|xmessage|gxmessage)\b"
 )
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
@@ -205,12 +256,137 @@ class HelpProbeFragment:
     content_hash: str = ""
 
 
-def is_safe_to_probe(name: str, binary_path: Path) -> bool:
+def _extract_desktop_exec_name(exec_value: str) -> str | None:
+    try:
+        tokens = shlex.split(exec_value)
+    except ValueError:
+        tokens = exec_value.split()
+
+    idx = 0
+    while idx < len(tokens):
+        tok = tokens[idx]
+        base = Path(tok).name
+        if base == "env":
+            idx += 1
+            continue
+        if "=" in tok and not tok.startswith(("=", "/")) and not tok.startswith("-"):
+            idx += 1
+            continue
+        if base == "pkexec":
+            idx += 1
+            while idx < len(tokens) and tokens[idx].startswith("-"):
+                flag = tokens[idx]
+                idx += 2 if flag in ("--user", "-u") else 1
+            continue
+        return base or None
+    return None
+
+
+def _parse_desktop_gui_exec(desktop_file: Path) -> str | None:
+    try:
+        text = desktop_file.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return None
+
+    in_entry = False
+    entry_type = ""
+    terminal = False
+    exec_val = ""
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("["):
+            if in_entry:
+                break
+            in_entry = line == "[Desktop Entry]"
+            continue
+        if not in_entry or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if key == "Type":
+            entry_type = value
+        elif key == "Terminal":
+            terminal = value.lower() == "true"
+        elif key == "Exec":
+            exec_val = value
+
+    if entry_type == "Application" and not terminal and exec_val:
+        return _extract_desktop_exec_name(exec_val)
+    return None
+
+
+def discover_gui_binaries(application_dirs: Sequence[Path] | None = None) -> frozenset[str]:
+    """Discover non-terminal GUI application executables from ``.desktop`` entries."""
+    if application_dirs is None:
+        raw_dirs: list[Path] = []
+        xdg_data = os.environ.get("XDG_DATA_DIRS", "")
+        for entry in xdg_data.split(os.pathsep):
+            if entry:
+                raw_dirs.append(Path(entry) / "applications")
+        raw_dirs.extend(
+            [
+                Path("/usr/share/applications"),
+                Path("/usr/local/share/applications"),
+                Path.home() / ".local" / "share" / "applications",
+            ]
+        )
+        dirs_to_scan = list(dict.fromkeys(raw_dirs))
+    else:
+        dirs_to_scan = list(application_dirs)
+
+    gui_names: set[str] = set()
+    for app_dir in dirs_to_scan:
+        if not app_dir.is_dir():
+            continue
+        try:
+            desktop_files = list(app_dir.glob("*.desktop"))
+        except OSError:
+            continue
+        for desktop_file in desktop_files:
+            exe_name = _parse_desktop_gui_exec(desktop_file)
+            if exe_name:
+                gui_names.add(exe_name)
+    return frozenset(gui_names)
+
+
+@functools.lru_cache(maxsize=1)
+def _cached_gui_binaries() -> frozenset[str]:
+    return discover_gui_binaries()
+
+
+def _script_invokes_gui_or_escalation(binary_path: Path) -> bool:
+    """Return True if a shebang script invokes privilege-escalation or GUI dialog helpers."""
+    try:
+        with binary_path.open("rb") as handle:
+            head = handle.read(8192)
+    except OSError:
+        return False
+
+    if not head.startswith(b"#!"):
+        return False
+
+    lines = head.decode("utf-8", errors="ignore").splitlines()[1:]
+    body = "\n".join(line for line in lines if not line.lstrip().startswith("#"))
+    return bool(_SCRIPT_UNSAFE_CALL_RE.search(body))
+
+
+def is_safe_to_probe(
+    name: str,
+    binary_path: Path,
+    *,
+    gui_binaries: frozenset[str] | None = None,
+) -> bool:
     """Return True if ``binary_path`` passes static safety checks for ``--help``."""
     lowered = name.lower()
     if name in _UNSAFE_EXACT or lowered in _UNSAFE_EXACT:
         return False
     if any(lowered.startswith(prefix) for prefix in _UNSAFE_PREFIXES):
+        return False
+    if any(lowered.endswith(suffix) for suffix in _UNSAFE_SUFFIXES):
         return False
     if lowered.endswith(("d", "-daemon", "-server", "-helper", "-agent")) and lowered not in (
         "fd",
@@ -230,6 +406,10 @@ def is_safe_to_probe(name: str, binary_path: Path) -> bool:
     ):
         return False
 
+    active_gui = _cached_gui_binaries() if gui_binaries is None else gui_binaries
+    if name in active_gui or lowered in active_gui:
+        return False
+
     try:
         st = binary_path.stat()
     except OSError:
@@ -238,7 +418,10 @@ def is_safe_to_probe(name: str, binary_path: Path) -> bool:
     # Never invoke setuid or setgid binaries.
     if st.st_mode & (stat.S_ISUID | stat.S_ISGID):
         return False
-    return stat.S_ISREG(st.st_mode)
+    if not stat.S_ISREG(st.st_mode):
+        return False
+
+    return not _script_invokes_gui_or_escalation(binary_path)
 
 
 def _sanitized_env(sandbox_home: str) -> dict[str, str]:
@@ -246,6 +429,15 @@ def _sanitized_env(sandbox_home: str) -> dict[str, str]:
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
         "HOME": sandbox_home,
         "TMPDIR": sandbox_home,
+        "XDG_RUNTIME_DIR": sandbox_home,
+        "DBUS_SYSTEM_BUS_ADDRESS": "unix:path=/dev/null",
+        "DBUS_SESSION_BUS_ADDRESS": "unix:path=/dev/null",
+        "QT_QPA_PLATFORM": "offscreen",
+        "SUDO_ASKPASS": "/bin/false",
+        "SSH_ASKPASS": "/bin/false",
+        "SSH_ASKPASS_REQUIRE": "never",
+        "GIT_ASKPASS": "/bin/false",
+        "GIT_TERMINAL_PROMPT": "0",
         "LANG": "C.UTF-8",
         "LC_ALL": "C.UTF-8",
         "TERM": "dumb",
@@ -256,13 +448,25 @@ def _sanitized_env(sandbox_home: str) -> dict[str, str]:
     }
 
 
+def _resolve_setpriv() -> str | None:
+    if sys.platform.startswith("linux"):
+        return shutil.which("setpriv")
+    return None
+
+
 def run_help_probe(binary_path: Path, *, timeout: float = 1.5) -> str | None:
     """Execute ``[binary_path, "--help"]`` safely in an isolated temp dir."""
+    setpriv = _resolve_setpriv()
+    cmd = (
+        [setpriv, "--no-new-privs", "--", str(binary_path), "--help"]
+        if setpriv
+        else [str(binary_path), "--help"]
+    )
     proc: subprocess.Popen[bytes] | None = None
     with tempfile.TemporaryDirectory(prefix="sem-probe-") as sandbox_dir:
         try:
             proc = subprocess.Popen(
-                [str(binary_path), "--help"],
+                cmd,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -273,14 +477,17 @@ def run_help_probe(binary_path: Path, *, timeout: float = 1.5) -> str | None:
             stdout, stderr = proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
             if proc is not None:
-                try:
+                with contextlib.suppress(OSError):
                     os.killpg(proc.pid, signal.SIGKILL)
-                except OSError:
-                    proc.kill()
-                proc.communicate()
+                with contextlib.suppress(OSError):
+                    proc.communicate()
             return None
         except OSError:
             return None
+        finally:
+            if proc is not None:
+                with contextlib.suppress(OSError):
+                    os.killpg(proc.pid, signal.SIGKILL)
 
     # Many tools (like 7z or Go/flag tools) exit 0 or 2 on --help and print to stdout or stderr.
     combined = stdout if len(stdout.strip()) >= len(stderr.strip()) else stderr
@@ -296,12 +503,22 @@ def run_help_probe(binary_path: Path, *, timeout: float = 1.5) -> str | None:
 
     text = _ANSI_RE.sub("", combined[:_MAX_OUTPUT_BYTES].decode("utf-8", errors="replace"))
     lowered = text.lower()
-    # Reject generic "unrecognized option --help" errors unless actual usage follows.
+    # Reject generic option/privilege/display errors unless actual usage follows.
     if (
         len(text.splitlines()) <= 4
         and any(
             err in lowered
-            for err in ("unrecognized option", "invalid option", "unknown option", "illegal option")
+            for err in (
+                "unrecognized option",
+                "invalid option",
+                "unknown option",
+                "illegal option",
+                "must be setuid root",
+                "cannot open display",
+                "failed to open display",
+                "could not connect to display",
+                "no protocol specified",
+            )
         )
         and "usage:" not in lowered
     ):
@@ -460,9 +677,10 @@ def probe_tool_help(
     binary_path: Path,
     *,
     timeout: float = 1.5,
+    gui_binaries: frozenset[str] | None = None,
 ) -> HelpProbeFragment | None:
     """Safely probe and parse ``<binary> --help`` if permitted."""
-    if not is_safe_to_probe(name, binary_path):
+    if not is_safe_to_probe(name, binary_path, gui_binaries=gui_binaries):
         return None
 
     output = run_help_probe(binary_path, timeout=timeout)

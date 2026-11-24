@@ -34,7 +34,12 @@ from sempropos.intelligence.facade import detect_embedding_provider, embed_texts
 from sempropos.model.spec import ToolSpec
 from sempropos.sources.completions import extract_completion_fragments
 from sempropos.sources.discovery import DiscoveryContext, discover_path_binaries
-from sempropos.sources.help_probe import HelpProbeFragment, is_safe_to_probe, probe_tool_help
+from sempropos.sources.help_probe import (
+    HelpProbeFragment,
+    discover_gui_binaries,
+    is_safe_to_probe,
+    probe_tool_help,
+)
 from sempropos.sources.man import extract_man_bundles
 from sempropos.sources.merger import (
     ToolSourceBundle,
@@ -84,13 +89,14 @@ def _probe_missing_tools(
     progress: bool,
 ) -> dict[str, HelpProbeFragment]:
     """Probe ``--help`` only for safe installed binaries lacking rich man documentation."""
+    gui_binaries = discover_gui_binaries()
     candidates: list[tuple[str, Path]] = []
     seen_canonical: set[str] = set()
     for name, bin_path in sorted(context.binaries.items()):
         canonical = context.canonical_name(name)
         if canonical in already_rich or canonical in seen_canonical:
             continue
-        if not is_safe_to_probe(canonical, bin_path):
+        if not is_safe_to_probe(canonical, bin_path, gui_binaries=gui_binaries):
             continue
         seen_canonical.add(canonical)
         candidates.append((canonical, bin_path))
@@ -110,7 +116,15 @@ def _probe_missing_tools(
                 name, bpath = next(cand_iter)
             except StopIteration:
                 return False
-            in_flight[pool.submit(probe_tool_help, name, bpath, timeout=timeout)] = name
+            in_flight[
+                pool.submit(
+                    probe_tool_help,
+                    name,
+                    bpath,
+                    timeout=timeout,
+                    gui_binaries=gui_binaries,
+                )
+            ] = name
             return True
 
         for _ in range(_PROBE_INFLIGHT):

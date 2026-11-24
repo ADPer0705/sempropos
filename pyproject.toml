@@ -1,6 +1,6 @@
 [project]
 name = "sempropos"
-version = "1.0.0"
+version = "1.0.1"
 description = "Instant offline CLI replacement for apropos, --help, and man pages"
 readme = "README.md"
 requires-python = ">=3.11"

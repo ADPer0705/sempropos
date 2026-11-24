@@ -6,7 +6,12 @@ from sempropos.sources.discovery import (
     compute_missing_binaries,
     discover_path_binaries,
 )
-from sempropos.sources.help_probe import is_safe_to_probe, parse_help_output, probe_tool_help
+from sempropos.sources.help_probe import (
+    discover_gui_binaries,
+    is_safe_to_probe,
+    parse_help_output,
+    probe_tool_help,
+)
 from sempropos.sources.man import discover_man_files, extract_man_bundles
 from sempropos.sources.merger import (
     ManBundle,
@@ -44,6 +49,7 @@ __all__ = [
     "parse_tldr_markdown",
     "sync_tldr_archive",
     "extract_completion_fragments",
+    "discover_gui_binaries",
     "is_safe_to_probe",
     "parse_help_output",
     "probe_tool_help",

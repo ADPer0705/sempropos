@@ -15,7 +15,13 @@ from sempropos import config
 from sempropos.index import builder, repository, schema, staleness
 from sempropos.sources.completions import parse_fish_completion, parse_zsh_completion
 from sempropos.sources.discovery import DiscoveryContext, discover_path_binaries
-from sempropos.sources.help_probe import is_safe_to_probe, parse_help_output
+from sempropos.sources.help_probe import (
+    _sanitized_env,
+    discover_gui_binaries,
+    is_safe_to_probe,
+    parse_help_output,
+    run_help_probe,
+)
 from sempropos.sources.merger import ManBundle, ToolSourceBundle, merge_tool_bundle
 from sempropos.sources.roff_parser import parse_roff_source
 from sempropos.sources.tldr import extract_tldr_fragments, parse_tldr_markdown
@@ -117,6 +123,81 @@ def test_help_probe_parses_clap_and_7z_and_blocks_unsafe(tmp_path: Path) -> None
     out = run_help_probe(rogue)
     assert out is not None and "Usage: rogue_tool" in out
     assert not (Path.cwd() / "leaked.log").exists()
+
+
+def test_help_probe_blocks_pkexec_wrappers_gui_desktop_apps_and_noise(tmp_path: Path) -> None:
+    safe_bin = tmp_path / "plain_cli"
+    safe_bin.write_text("#!/bin/sh\necho 'Usage: plain_cli [OPTIONS]'\n")
+    safe_bin.chmod(0o755)
+
+    # Suffix/prefix/exact denylists block privilege-escalation and GUI helpers.
+    for blocked in (
+        "ettercap-pkexec",
+        "auto-cpufreq-gtk",
+        "ksshaskpass",
+        "liveinst",
+        "gparted",
+        "hyprland-dialog",
+        "polkit-agent-helper",
+    ):
+        assert is_safe_to_probe(blocked, safe_bin, gui_binaries=frozenset()) is False
+
+    # Shebang script invoking pkexec or zenity must be rejected even if non-setuid.
+    pkexec_wrapper = tmp_path / "custom-wrapper"
+    pkexec_wrapper.write_text('#!/usr/bin/sh\npkexec --disable-internal-agent "ettercap" "$@"\n')
+    pkexec_wrapper.chmod(0o755)
+    assert is_safe_to_probe("custom-wrapper", pkexec_wrapper, gui_binaries=frozenset()) is False
+
+    zenity_wrapper = tmp_path / "gui-prompt"
+    zenity_wrapper.write_text("#!/bin/sh\nzenity --info --text=hi\n")
+    zenity_wrapper.chmod(0o755)
+    assert is_safe_to_probe("gui-prompt", zenity_wrapper, gui_binaries=frozenset()) is False
+
+    # Comments mentioning pkexec must not falsely block a legitimate CLI script.
+    comment_only = tmp_path / "cli-with-comment"
+    comment_only.write_text("#!/bin/sh\n# Note: does not use pkexec\necho 'Usage: ok'\n")
+    comment_only.chmod(0o755)
+    assert is_safe_to_probe("cli-with-comment", comment_only, gui_binaries=frozenset()) is True
+
+    # Non-terminal .desktop GUI applications are discovered and excluded; Terminal=true stays allowed.
+    apps_dir = tmp_path / "applications"
+    apps_dir.mkdir()
+    (apps_dir / "mygui.desktop").write_text(
+        "[Desktop Entry]\nType=Application\nName=MyGUI\nExec=/usr/bin/mygui %U\n"
+    )
+    (apps_dir / "myadmin.desktop").write_text(
+        "[Desktop Entry]\nType=Application\nName=MyAdmin\nExec=env FOO=1 pkexec /usr/bin/myadmin\n"
+    )
+    (apps_dir / "mycli.desktop").write_text(
+        "[Desktop Entry]\nType=Application\nName=MyCLI\nTerminal=true\nExec=mycli\n"
+    )
+    gui_bins = discover_gui_binaries([apps_dir])
+    assert {"mygui", "myadmin"}.issubset(gui_bins)
+    assert "mycli" not in gui_bins
+    assert is_safe_to_probe("mygui", safe_bin, gui_binaries=gui_bins) is False
+    assert is_safe_to_probe("mycli", safe_bin, gui_binaries=gui_bins) is True
+
+    # Sanitized environment isolates D-Bus, runtime dir, and askpass helpers.
+    env = _sanitized_env(str(tmp_path))
+    assert env["DBUS_SYSTEM_BUS_ADDRESS"] == "unix:path=/dev/null"
+    assert env["DBUS_SESSION_BUS_ADDRESS"] == "unix:path=/dev/null"
+    assert env["XDG_RUNTIME_DIR"] == str(tmp_path)
+    assert env["SUDO_ASKPASS"] == "/bin/false"
+    assert env["SSH_ASKPASS"] == "/bin/false"
+    assert env["GIT_ASKPASS"] == "/bin/false"
+    assert "DISPLAY" not in env
+    assert "WAYLAND_DISPLAY" not in env
+
+    # Short privilege/display error outputs without usage info are filtered out.
+    setuid_err = tmp_path / "setuid_err"
+    setuid_err.write_text("#!/bin/sh\necho 'pkexec must be setuid root' >&2\nexit 127\n")
+    setuid_err.chmod(0o755)
+    assert run_help_probe(setuid_err) is None
+
+    display_err = tmp_path / "display_err"
+    display_err.write_text("#!/bin/sh\necho 'Gtk-WARNING: cannot open display:' >&2\nexit 1\n")
+    display_err.chmod(0o755)
+    assert run_help_probe(display_err) is None
 
 
 def test_tldr_markdown_and_zip_subcommand_attachment(tmp_path: Path) -> None:
